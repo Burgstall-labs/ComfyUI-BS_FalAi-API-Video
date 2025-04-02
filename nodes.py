@@ -174,11 +174,11 @@ class FalAPIVideoGenerator:
                     "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"
                 }),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                "prompt": ("STRING", {"multiline": True, "default": "A beautiful landscape"}),
+                "prompt": ("STRING", {"multiline": True, "default": "A wild Burgstall appears"}),
             },
             "optional": {
                 "image": ("IMAGE",),
-                "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "negative_prompt": ("STRING", {"multiline": True, "default": "Ugly, blurred, distorted"}),
                 "resolution_enum": (ALL_RESOLUTIONS, {"default": "auto"}),
                 "aspect_ratio_enum": (ALL_ASPECT_RATIOS, {"default": "auto"}),
                 # width and height are correctly removed
