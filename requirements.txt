@@ -1,0 +1,14 @@
+# requirements.txt for FalAPIVideoGenerator ComfyUI Node
+
+requests
+numpy
+fal
+Pillow
+opencv-python
+
+# Note: torch is also required, but it's usually managed by the ComfyUI installation itself.
+# If running this code outside ComfyUI or if torch is missing, install it following
+# the official PyTorch instructions for your system (pytorch.org).
+# Example (CPU-only): pip install torch torchvision torchaudio
+# Example (CUDA): Check PyTorch website for the correct command for your CUDA version.
+# torch
