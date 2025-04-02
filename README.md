@@ -1,6 +1,6 @@
 # ComfyUI-BS_FalAi-API-Video
 ## Experimental ComfyUI Custom Node for generating videos using various FAL AI API endpoints
-I spent a day with Gemini and Claude to produce this, and it is certainly not perfect. Further testing is needed, but at least Kling and Wan endpoints have been tested and work fine.
+I spent a day with Gemini and Claude to produce this, and it is certainly not perfect. My python expertise is elementary level. Further testing is needed, but at least Kling and Wan endpoints have been tested and work fine.
 
 ## Installation:
 git clone https://github.com/Burgstall-labs/ComfyUI-BS_FalAi-API-Video
