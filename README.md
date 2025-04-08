@@ -18,7 +18,7 @@ This repository contains custom nodes for ComfyUI that allow you to interact wit
     *   A highly flexible node designed to interact with **any** fal.ai model endpoint.
     *   You provide the specific `endpoint_id` as text input.
     *   Handles **automatic uploading** of media inputs (start image, end image, input video, input audio) if connected.
-    *   Requires other model parameters (like `seed`, `steps`, `prompt`, endpoint-specific booleans, enums, etc.) to be provided as a **JSON object** in a text field.
+    *   Requires other model parameters (like `seed`, `steps`, `prompt`, endpoint-specific booleans, enums, etc.) to be provided as a **JSON object** in a text field. Please refer to each corresponding endpoint API description, like https://fal.ai/models/fal-ai/kling-video/v1/standard/image-to-video/api
     *   Returns the resulting image or video frames as a standard ComfyUI IMAGE batch.
 
 ## Features
