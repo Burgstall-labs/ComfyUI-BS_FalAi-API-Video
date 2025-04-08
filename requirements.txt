@@ -1,10 +1,11 @@
-# requirements.txt for FalAPIVideoGenerator ComfyUI Node
+# requirements.txt for Fal.ai API Nodes ComfyUI Nodes
 
 requests
 numpy
-fal
+fal-client
 Pillow
 opencv-python
+scipy
 
 # Note: torch is also required, but it's usually managed by the ComfyUI installation itself.
 # If running this code outside ComfyUI or if torch is missing, install it following
