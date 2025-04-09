@@ -751,7 +751,7 @@ class FalAPIVideoGeneratorI2V:
             cap = cv2.VideoCapture(temp_video_filepath)
             if not cap.isOpened(): raise IOError(f"Could not open video file: {temp_video_filepath}")
             while True: ret, frame = cap.read(); # ... (extract loop) ...
-                 if not ret: break; frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); frames_list.append(frame_rgb)
+                if not ret: break; frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); frames_list.append(frame_rgb)
             cap.release()
             if not frames_list: raise ValueError(f"No frames extracted from video: {temp_video_filepath}")
             print(f"{log_prefix()} Extracted {len(frames_list)} frames.")
