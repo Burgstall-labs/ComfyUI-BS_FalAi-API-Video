@@ -768,27 +768,37 @@ class FalAPIVideoGeneratorI2V:
             return (frames_tensor,) # Success return
 
         # --- Exception Handling with Poller ---
-        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,)
+        except KeyboardInterrupt:
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except KeyboardInterrupt:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
+
         except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,)
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Job timed out: {e}") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except TimeoutError:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -944,27 +954,37 @@ class FalAPIVideoGeneratorT2V:
             return (frames_tensor,) # Success return
 
         # --- Exception Handling with Poller (Same as I2V) ---
-        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,)
+        except KeyboardInterrupt:
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except KeyboardInterrupt:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
+
         except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,)
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Job timed out: {e}") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except TimeoutError:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -1150,27 +1170,37 @@ class FalAPIOmniProNode:
                  return (None,)
 
         # --- Exception Handling with Poller (Same pattern as other nodes) ---
-        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,)
+        except KeyboardInterrupt:
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except KeyboardInterrupt:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
+
         except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,)
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Job timed out: {e}") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except TimeoutError:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -1341,27 +1371,37 @@ class FalAILipSyncNode:
             return (frames_tensor, input_audio, temp_download_filepath)
 
         # --- Exception Handling with Poller ---
-        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,)
+        except KeyboardInterrupt:
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except KeyboardInterrupt:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
+
         except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id:
-                # --- Corrected Indent and Structure ---
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,)
+            # This block starts with 4 spaces indent relative to 'try'
+            print(f"ERROR: {log_prefix()} Job timed out: {e}") # 4 spaces
+            if request_id: # 4 spaces (same level as print above)
+                # Contents of 'if' block have 8 spaces indent
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...") # 8 spaces
+                try: # 8 spaces
+                    # Contents of 'try' block have 12 spaces indent
+                    fal_client.cancel(endpoint_id, request_id) # 12 spaces
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # 12 spaces
+                except Exception as cancel_e: # 8 spaces (aligned with 'try')
+                    # Contents of 'except' block have 12 spaces indent
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}") # 12 spaces
+            # This return is outside the 'if request_id:' block but inside the 'except TimeoutError:' block
+            return (None,) # 4 spaces (aligned with the initial print and if)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None, None, None) # Correct return
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None, None, None)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None, None, None)
