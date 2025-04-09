@@ -1041,8 +1041,15 @@ def _save_audio_tensor_to_temp_wav(audio_data):
     Saves audio data (from ComfyUI AUDIO type) to a temporary WAV file.
     Returns the path to the temporary file.
     """
+    # --- ADD THIS DEBUG PRINT ---
+    print(f"[Fal Helper] _save_audio_tensor_to_temp_wav received audio_data type: {type(audio_data)}")
+    if isinstance(audio_data, dict):
+         print(f"[Fal Helper] audio_data keys: {audio_data.keys()}")
+    # --- END OF DEBUG PRINT ---
+
     if not audio_data or 'samples' not in audio_data or 'sample_rate' not in audio_data:
-        print(f"ERROR: {log_prefix()} Invalid audio data received.")
+        # Use the generic prefix here too
+        print(f"ERROR: [Fal Helper] Invalid audio data received.")
         return None
 
     sample_rate = audio_data['sample_rate']
