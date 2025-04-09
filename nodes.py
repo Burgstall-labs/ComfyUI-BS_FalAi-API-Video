@@ -1,3 +1,5 @@
+# Full nodes.py content with polling and cancellation logic integrated
+
 import os
 import io
 import base64
@@ -18,7 +20,6 @@ import cv2 # Requires opencv-python: pip install opencv-python
 import folder_paths
 
 # --- Configuration Data with Categories ---
-# (MODEL_CONFIGS dictionary remains the same as provided in your last snippet)
 MODEL_CONFIGS = {
     "image_to_video": {
         "MiniMax (Hailuo AI) Video 01 Image to Video": {
@@ -267,7 +268,7 @@ MODEL_CONFIGS = {
 
 # --- Polling Helper Function ---
 # (Keep _poll_fal_job function as provided in the previous response)
-def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=600):
+def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # Default timeout 15 mins
     """
     Polls a fal.ai job status until completion, failure, or timeout.
     Handles KeyboardInterrupt for cancellation.
@@ -386,6 +387,8 @@ ALL_RESOLUTIONS.insert(0, "auto")
 
 
 # --- Helper Functions with Corrected Logging ---
+# (Keep _prepare_image_bytes, _save_tensor_to_temp_video, _upload_media_to_fal, _save_audio_tensor_to_temp_wav
+#  functions as provided in the previous response, with [Fal Helper] prefixes)
 
 def _prepare_image_bytes(image_tensor):
     """Converts ComfyUI Image Tensor to PNG bytes."""
@@ -521,9 +524,9 @@ def _save_audio_tensor_to_temp_wav(audio_data):
     Returns the path to the temporary file.
     """
     # --- Debug prints ---
-    print(f"[Fal Helper] _save_audio_tensor_to_temp_wav received audio_data type: {type(audio_data)}") # Keep debug prefix
-    if isinstance(audio_data, dict):
-        print(f"[Fal Helper] audio_data keys: {audio_data.keys()}") # Keep debug prefix
+    # print(f"[Fal Helper] _save_audio_tensor_to_temp_wav received audio_data type: {type(audio_data)}") # Keep debug prefix if needed
+    # if isinstance(audio_data, dict):
+    #     print(f"[Fal Helper] audio_data keys: {audio_data.keys()}") # Keep debug prefix if needed
     # --- End Debug ---
 
     if not isinstance(audio_data, dict) or 'sample_rate' not in audio_data or \
@@ -573,16 +576,68 @@ def _save_audio_tensor_to_temp_wav(audio_data):
 
 # --- Define the Image-to-Video Node Class with Polling ---
 class FalAPIVideoGeneratorI2V:
-    # INPUT_TYPES, RETURN_TYPES, RETURN_NAMES, FUNCTION, CATEGORY remain the same
     @classmethod
-    def INPUT_TYPES(cls): return {...} # Keep original definition
+    def INPUT_TYPES(cls):
+        # Keep original INPUT_TYPES definition from your code
+        return {
+            "required": {
+                "model_name": (ALL_MODEL_NAMES_I2V,),
+                "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "prompt": ("STRING", {"multiline": True, "default": "A wild Burgstall appears"}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
+                "negative_prompt": ("STRING", {"multiline": True, "default": "Ugly, blurred, distorted"}),
+                "resolution_enum": (ALL_RESOLUTIONS, {"default": "auto"}),
+                "aspect_ratio_enum": (ALL_ASPECT_RATIOS, {"default": "auto"}),
+                "duration_seconds": ("FLOAT", {"default": 5.0, "min": 1.0, "max": 30.0, "step": 0.5}),
+                "guidance_scale": ("FLOAT", {"default": 7.5, "min": 0.0, "max": 20.0, "step": 0.1}),
+                "steps": ("INT", {"default": 25, "min": 1, "max": 100, "step": 1}),
+                "num_frames": ("INT", {"default": 0, "min": 0, "max": 1000}),
+                "style": (["auto", "cinematic", "anime", "photorealistic", "fantasy", "cartoon"], {"default": "auto"}),
+                "prompt_optimizer": ("BOOLEAN", {"default": False}),
+                "cleanup_temp_video": ("BOOLEAN", {"default": True}),
+            }
+        }
+
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image_batch",)
     FUNCTION = "generate_video"
     CATEGORY = "BS_FalAi-API-Video/Image-to-Video"
 
-    # _prepare_image method remains the same
-    def _prepare_image(self, ...): ...
+    # --- _prepare_image method (Keep original if it works for you) ---
+    def _prepare_image(self, image_tensor, target_width=None, target_height=None):
+        """Converts ComfyUI Image Tensor to Base64 Data URI, resizing if needed."""
+        # Using the Base64 method specific to this node
+        if image_tensor is None:
+            print("FalAPIVideoGeneratorI2V: No image provided to _prepare_image.")
+            return None
+
+        print("FalAPIVideoGeneratorI2V: Preparing image (Base64 method)...") # Specific log
+        try:
+            if image_tensor.dim() == 4 and image_tensor.shape[0] == 1: img_tensor = image_tensor[0]
+            elif image_tensor.dim() == 3: img_tensor = image_tensor
+            else: raise ValueError(f"Unexpected image tensor shape: {image_tensor.shape}")
+
+            img_np = img_tensor.cpu().numpy()
+            img_np = (img_np * 255).astype(np.uint8)
+            pil_image = Image.fromarray(img_np)
+
+            if target_width and target_height and (pil_image.width != target_width or pil_image.height != target_height):
+                print(f"FalAPIVideoGeneratorI2V: Resizing input image to {target_width}x{target_height}")
+                pil_image = pil_image.resize((target_width, target_height), Image.LANCZOS)
+
+            buffered = io.BytesIO()
+            pil_image.save(buffered, format="PNG")
+            img_bytes = buffered.getvalue()
+            img_b64_encoded = base64.b64encode(img_bytes).decode('utf-8')
+            img_data_uri = f"data:image/png;base64,{img_b64_encoded}"
+            print("FalAPIVideoGeneratorI2V: Image preparation complete (Base64).")
+            return img_data_uri
+        except Exception as e:
+            print(f"ERROR: FalAPIVideoGeneratorI2V: Image processing failed: {e}")
+            traceback.print_exc(); return None
 
     # --- generate_video method for I2V with Polling ---
     def generate_video(self, model_name, api_key, seed, prompt,
@@ -594,11 +649,9 @@ class FalAPIVideoGeneratorI2V:
                          style="auto",
                          prompt_optimizer=False, cleanup_temp_video=True):
 
-        # Use a specific log prefix for this node
         def log_prefix(): return "FalAPIVideoGeneratorI2V:"
 
         # --- 1. Get Model Config ---
-        # (Same as before)
         if model_name not in MODEL_CONFIGS["image_to_video"]:
             print(f"ERROR: {log_prefix()} Unknown model name '{model_name}'")
             return (None,)
@@ -608,51 +661,48 @@ class FalAPIVideoGeneratorI2V:
         print(f"{log_prefix()} Selected Model: {model_name}, Endpoint: {endpoint_id}")
 
         # --- 2. API Key Setup ---
-        # (Same as before)
         if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)":
-            print(f"ERROR: {log_prefix()} API Key is missing.")
-            return (None,)
+            print(f"ERROR: {log_prefix()} API Key is missing."); return (None,)
         api_key_value = api_key.strip()
-        # ... (format check, set os.environ) ...
-        try:
-            os.environ["FAL_KEY"] = api_key_value
-            print(f"{log_prefix()} Using provided API Key.")
-        except Exception as e:
-             print(f"ERROR: {log_prefix()} Failed to set API Key environment variable: {e}")
-             traceback.print_exc(); return (None,)
-
+        if ':' not in api_key_value and len(api_key_value) < 20:
+             print(f"WARN: {log_prefix()} API Key format may be incorrect.")
+        try: os.environ["FAL_KEY"] = api_key_value; print(f"{log_prefix()} Using provided API Key.")
+        except Exception as e: print(f"ERROR: {log_prefix()} Failed to set API Key: {e}"); traceback.print_exc(); return (None,)
 
         # --- 3. Prepare Payload Dynamically ---
-        # (Same payload construction logic as before, including image handling)
         payload = {}
         img_data_uri = None
         if 'image_url' in expected_params:
             if image is not None:
-                # Use internal _prepare_image if available, or fallback/error
-                if hasattr(self, '_prepare_image'):
-                    img_data_uri = self._prepare_image(image)
-                else: # Or use _prepare_image_bytes if _prepare_image wasn't defined/copied
-                    img_bytes, _ = _prepare_image_bytes(image)
-                    if img_bytes: img_data_uri = f"data:image/png;base64,{base64.b64encode(img_bytes).decode('utf-8')}"
-
+                # Use internal _prepare_image specific to this node
+                img_data_uri = self._prepare_image(image)
                 if img_data_uri: payload['image_url'] = img_data_uri
-                else:
-                    print(f"ERROR: {log_prefix()} Failed to prepare image.")
-                    return (None,)
+                else: print(f"ERROR: {log_prefix()} Failed to prepare image."); return (None,)
             else: print(f"WARN: {log_prefix()} Model expects 'image_url', but none provided.")
         elif image is not None: print(f"WARN: {log_prefix()} Image provided but model doesn't expect 'image_url'.")
-        # ... (rest of payload construction: prompts, numeric params, enums) ...
-        # (Ensure this part correctly builds the 'payload' dictionary)
-        param_map = {...} # As before
-        api_name_map = {...} # As before
+
+        if 'prompt' in expected_params:
+            if prompt and prompt.strip(): payload['prompt'] = prompt.strip()
+            else: print(f"WARN: {log_prefix()} Model expects 'prompt', but it's empty.")
+        if 'negative_prompt' in expected_params and negative_prompt and negative_prompt.strip():
+            payload['negative_prompt'] = negative_prompt.strip()
+
+        param_map = { "seed": seed, "duration_seconds": duration_seconds, "guidance_scale": guidance_scale, "steps": steps, "num_frames": num_frames, "style": style, "prompt_optimizer": prompt_optimizer, "resolution_enum": resolution_enum, "aspect_ratio_enum": aspect_ratio_enum }
+        api_name_map = { "duration_seconds": "duration", "steps": "num_inference_steps", "resolution_enum": "resolution", "aspect_ratio_enum": "aspect_ratio" }
+
         for input_name, value in param_map.items():
-            # ... (Logic to add value to payload if expected and valid) ...
             api_name = api_name_map.get(input_name, input_name)
             if api_name in expected_params:
-                 # ... (Handle 'auto', type conversions, add to payload) ...
-                 pass # Placeholder for existing logic
-        # ... (Handle resolution/aspect ratio enums) ...
+                if isinstance(value, str) and value.lower() == "auto": continue
+                if isinstance(value, (int, float)) and value == 0 and input_name in ["num_frames", "seed"] and not (input_name == "seed" and 0 in expected_params): continue
+                if api_name == "duration" and "duration:Integer" in config.get('schema_str', ''): payload[api_name] = int(value)
+                elif api_name == "num_inference_steps" and "num_inference_steps:Integer" in config.get('schema_str', ''): payload[api_name] = int(value)
+                else: payload[api_name] = value
 
+        if 'resolution' in expected_params and resolution_enum != "auto":
+            payload['resolution'] = resolution_enum; payload.pop('width', None); payload.pop('height', None)
+        if 'aspect_ratio' in expected_params and aspect_ratio_enum != "auto":
+            payload['aspect_ratio'] = aspect_ratio_enum; payload.pop('width', None); payload.pop('height', None)
 
         # --- 4. API Call with Polling, Download, Frame Extraction ---
         request_id = None
@@ -662,50 +712,32 @@ class FalAPIVideoGeneratorI2V:
 
         try:
             print(f"{log_prefix()} Submitting job to endpoint: {endpoint_id}")
-            if not endpoint_id or not endpoint_id.strip():
-                 raise ValueError("Endpoint ID cannot be empty.")
-            print(f"{log_prefix()} Payload: {json.dumps(payload, indent=2)}") # Debug payload
+            if not endpoint_id or not endpoint_id.strip(): raise ValueError("Endpoint ID missing")
+            print(f"{log_prefix()} Payload: {json.dumps(payload, indent=2)}")
 
             # --- Submit and Poll ---
             handler = fal_client.submit(endpoint_id.strip(), arguments=payload)
             request_id = handler.request_id
             print(f"{log_prefix()} Job submitted. Request ID: {request_id}")
-
-            # Poll for the result (e.g., 15 min timeout = 900s)
-            response = _poll_fal_job(endpoint_id, request_id, timeout=900)
+            response = _poll_fal_job(endpoint_id, request_id, timeout=900) # Adjust timeout
             print(f"{log_prefix()} Job {request_id} completed successfully (poller returned).")
-            # 'response' now holds the final result dictionary
             # --- End Submit and Poll ---
 
-
             # --- Process Response ---
-            # (Same logic as before to find video_url from response dict)
             video_data = response.get('video')
             if isinstance(video_data, dict): video_url = video_data.get('url')
-            elif isinstance(response.get('videos'), list) and len(response['videos']) > 0:
-                 vid_info = response['videos'][0]
-                 if isinstance(vid_info, dict): video_url = vid_info.get('url')
-            elif isinstance(response, dict) and response.get('url') and isinstance(response.get('url'), str):
-                 if any(ext in response['url'].lower() for ext in ['.mp4', '.webm', '.mov', '.avi']):
-                      video_url = response['url']
-
-            if not video_url:
-                 print(f"ERROR: {log_prefix()} Polling succeeded but could not find video 'url' in Fal.ai result.")
-                 print(f"--- Full result: {json.dumps(response, indent=2)}")
-                 return (None,) # Correct return for this node
-
+            elif isinstance(response.get('videos'), list) and len(response['videos']) > 0 and isinstance(response['videos'][0], dict): video_url = response['videos'][0].get('url')
+            elif isinstance(response, dict) and response.get('url') and isinstance(response.get('url'), str) and any(ext in response['url'].lower() for ext in ['.mp4', '.webm']): video_url = response['url']
+            if not video_url: raise ValueError(f"Polling succeeded but no video URL found in result: {json.dumps(response, indent=2)}")
             print(f"{log_prefix()} Video URL received: {video_url}")
 
-            # --- Download Video ---
+            # --- Download, Save, Extract ---
             print(f"{log_prefix()} Downloading video file...")
             video_response = requests.get(video_url, stream=True, timeout=300)
             video_response.raise_for_status()
-
-            # --- Save Temp File ---
-            output_dir = folder_paths.get_temp_directory()
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = folder_paths.get_temp_directory(); os.makedirs(output_dir, exist_ok=True)
             content_type = video_response.headers.get('content-type', '').lower()
-            extension = '.mp4' # Default
+            extension = '.mp4'
             if 'webm' in content_type: extension = '.webm'
             elif video_url.lower().endswith('.webm'): extension = '.webm'
             filename = f"fal_api_i2v_temp_{uuid.uuid4().hex}{extension}"
@@ -714,81 +746,72 @@ class FalAPIVideoGeneratorI2V:
                 for chunk in video_response.iter_content(chunk_size=1024*1024): video_file.write(chunk)
             print(f"{log_prefix()} Video downloaded to: {temp_video_filepath}")
 
-            # --- Extract Frames ---
             print(f"{log_prefix()} Extracting frames...")
             frames_list = []
             cap = cv2.VideoCapture(temp_video_filepath)
             if not cap.isOpened(): raise IOError(f"Could not open video file: {temp_video_filepath}")
-            while True:
-                ret, frame = cap.read()
-                if not ret: break
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frames_list.append(frame_rgb)
+            while True: ret, frame = cap.read(); # ... (extract loop) ...
+                 if not ret: break; frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); frames_list.append(frame_rgb)
             cap.release()
             if not frames_list: raise ValueError(f"No frames extracted from video: {temp_video_filepath}")
             print(f"{log_prefix()} Extracted {len(frames_list)} frames.")
-
             frames_np = np.stack(frames_list, axis=0)
             frames_tensor = torch.from_numpy(frames_np).float() / 255.0
-            # --- End Frame Extraction ---
 
             if frames_tensor is None: raise ValueError("Frame tensor processing failed.")
             print(f"{log_prefix()} Frames tensor shape: {frames_tensor.shape}")
             return (frames_tensor,) # Success return
 
         # --- Exception Handling with Poller ---
-        except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
-            if request_id:
-                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                 try: fal_client.cancel(endpoint_id, request_id)
-                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,) # Correct return for this node
-        except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id:
-                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                 try: fal_client.cancel(endpoint_id, request_id)
-                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,) # Correct return for this node
-        except RuntimeError as e: # Fal job failures
-             print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}")
-             return (None,) # Correct return for this node
-        except requests.exceptions.RequestException as e:
-             print(f"ERROR: {log_prefix()} Network request failed: {e}")
-             traceback.print_exc(); return (None,)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: # Added Image error
-             print(f"ERROR: {log_prefix()} Media processing error: {e}")
-             traceback.print_exc(); return (None,)
-        except Exception as e:
-            req_id_str = f"Request ID: {request_id}" if request_id else 'N/A'
-            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
-            traceback.print_exc(); return (None,)
+        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
+            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            return (None,)
+        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); # ... (attempt cancel) ...
+            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            return (None,)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
+        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
 
         # --- Final Cleanup ---
         finally:
-            # (Same cleanup logic as before)
             if cleanup_temp_video and temp_video_filepath and os.path.exists(temp_video_filepath):
-                try:
-                    print(f"{log_prefix()} Cleaning up temporary video file: {temp_video_filepath}")
-                    os.remove(temp_video_filepath)
-                except Exception as e:
-                    print(f"WARN: {log_prefix()} Failed to delete temp file '{temp_video_filepath}': {e}")
-            elif temp_video_filepath and os.path.exists(temp_video_filepath):
-                 print(f"{log_prefix()} Keeping temporary video file: {temp_video_filepath}")
+                try: print(f"{log_prefix()} Cleaning up temp: {temp_video_filepath}"); os.remove(temp_video_filepath)
+                except Exception as e: print(f"WARN: {log_prefix()} Failed temp cleanup: {e}")
+            elif temp_video_filepath and os.path.exists(temp_video_filepath): print(f"{log_prefix()} Keeping temp: {temp_video_filepath}")
 
 
 # --- Define the Text-to-Video Node Class with Polling ---
 class FalAPIVideoGeneratorT2V:
-    # INPUT_TYPES, RETURN_TYPES, RETURN_NAMES, FUNCTION, CATEGORY remain the same
     @classmethod
-    def INPUT_TYPES(cls): return {...} # Keep original definition
+    def INPUT_TYPES(cls):
+        # Keep original INPUT_TYPES definition from your code
+         return {
+            "required": {
+                "model_name": (ALL_MODEL_NAMES_T2V,),
+                "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "prompt": ("STRING", {"multiline": True, "default": "A wild Burgstall appears"}),
+            },
+            "optional": {
+                "negative_prompt": ("STRING", {"multiline": True, "default": "Blurry, low quality, text, watermark"}),
+                "resolution_enum": (ALL_RESOLUTIONS, {"default": "auto"}),
+                "aspect_ratio_enum": (ALL_ASPECT_RATIOS, {"default": "auto"}),
+                "duration_seconds": ("FLOAT", {"default": 5.0, "min": 1.0, "max": 30.0, "step": 0.5}),
+                "guidance_scale": ("FLOAT", {"default": 7.5, "min": 0.0, "max": 20.0, "step": 0.1}),
+                "steps": ("INT", {"default": 25, "min": 1, "max": 100, "step": 1}),
+                "num_frames": ("INT", {"default": 0, "min": 0, "max": 1000}),
+                "style": (["auto", "cinematic", "anime", "photorealistic", "fantasy", "cartoon"], {"default": "auto"}),
+                "prompt_optimizer": ("BOOLEAN", {"default": False}),
+                "cleanup_temp_video": ("BOOLEAN", {"default": True}),
+            }
+        }
+
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image_batch",)
     FUNCTION = "generate_video"
     CATEGORY = "BS_FalAi-API-Video/Text-to-Video"
-
-    # NO _prepare_image method needed
 
     # --- generate_video method for T2V with Polling ---
     def generate_video(self, model_name, api_key, seed, prompt,
@@ -800,10 +823,9 @@ class FalAPIVideoGeneratorT2V:
                          style="auto",
                          prompt_optimizer=False, cleanup_temp_video=True):
 
-        def log_prefix(): return "FalAPIVideoGeneratorT2V:" # Specific prefix
+        def log_prefix(): return "FalAPIVideoGeneratorT2V:"
 
         # --- 1. Get Model Config ---
-        # (Same as before)
         if model_name not in MODEL_CONFIGS["text_to_video"]:
             print(f"ERROR: {log_prefix()} Unknown model name '{model_name}'")
             return (None,)
@@ -813,32 +835,38 @@ class FalAPIVideoGeneratorT2V:
         print(f"{log_prefix()} Selected Model: {model_name}, Endpoint: {endpoint_id}")
 
         # --- 2. API Key Setup ---
-        # (Same as before)
         if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)":
-            print(f"ERROR: {log_prefix()} API Key is missing.")
-            return (None,)
+            print(f"ERROR: {log_prefix()} API Key is missing."); return (None,)
         api_key_value = api_key.strip()
-        try:
-            os.environ["FAL_KEY"] = api_key_value
-            print(f"{log_prefix()} Using provided API Key.")
-        except Exception as e:
-             print(f"ERROR: {log_prefix()} Failed to set API Key environment variable: {e}")
-             traceback.print_exc(); return (None,)
+        try: os.environ["FAL_KEY"] = api_key_value; print(f"{log_prefix()} Using provided API Key.")
+        except Exception as e: print(f"ERROR: {log_prefix()} Failed to set API Key: {e}"); traceback.print_exc(); return (None,)
 
         # --- 3. Prepare Payload Dynamically ---
-        # (Same payload construction logic as before, NO image handling)
         payload = {}
-        # ... (Add prompt, negative_prompt, numeric, enum params to payload) ...
-        # (Ensure this part correctly builds the 'payload' dictionary)
-        param_map = {...} # As before
-        api_name_map = {...} # As before
+        # (Payload construction logic is the same as I2V, just without the image part)
+        if 'prompt' in expected_params:
+            if prompt and prompt.strip(): payload['prompt'] = prompt.strip()
+            else: print(f"WARN: {log_prefix()} Model expects 'prompt', but it's empty.")
+        if 'negative_prompt' in expected_params and negative_prompt and negative_prompt.strip():
+            payload['negative_prompt'] = negative_prompt.strip()
+
+        param_map = { "seed": seed, "duration_seconds": duration_seconds, "guidance_scale": guidance_scale, "steps": steps, "num_frames": num_frames, "style": style, "prompt_optimizer": prompt_optimizer, "resolution_enum": resolution_enum, "aspect_ratio_enum": aspect_ratio_enum }
+        api_name_map = { "duration_seconds": "duration", "steps": "num_inference_steps", "resolution_enum": "resolution", "aspect_ratio_enum": "aspect_ratio" }
+
         for input_name, value in param_map.items():
-            # ... (Logic to add value to payload if expected and valid) ...
             api_name = api_name_map.get(input_name, input_name)
             if api_name in expected_params:
-                 # ... (Handle 'auto', type conversions, add to payload) ...
-                 pass # Placeholder for existing logic
-        # ... (Handle resolution/aspect ratio enums) ...
+                if isinstance(value, str) and value.lower() == "auto": continue
+                if isinstance(value, (int, float)) and value == 0 and input_name in ["num_frames", "seed"] and not (input_name == "seed" and 0 in expected_params): continue
+                if api_name == "duration" and "duration:Integer" in config.get('schema_str', ''): payload[api_name] = int(value)
+                elif api_name == "num_inference_steps" and "num_inference_steps:Integer" in config.get('schema_str', ''): payload[api_name] = int(value)
+                else: payload[api_name] = value
+
+        if 'resolution' in expected_params and resolution_enum != "auto":
+            payload['resolution'] = resolution_enum; payload.pop('width', None); payload.pop('height', None)
+        if 'aspect_ratio' in expected_params and aspect_ratio_enum != "auto":
+            payload['aspect_ratio'] = aspect_ratio_enum; payload.pop('width', None); payload.pop('height', None)
+
 
         # --- 4. API Call with Polling, Download, Frame Extraction ---
         request_id = None
@@ -848,17 +876,14 @@ class FalAPIVideoGeneratorT2V:
 
         try:
             print(f"{log_prefix()} Submitting job to endpoint: {endpoint_id}")
-            if not endpoint_id or not endpoint_id.strip():
-                 raise ValueError("Endpoint ID cannot be empty.")
-            print(f"{log_prefix()} Payload: {json.dumps(payload, indent=2)}") # Debug payload
+            if not endpoint_id or not endpoint_id.strip(): raise ValueError("Endpoint ID missing")
+            print(f"{log_prefix()} Payload: {json.dumps(payload, indent=2)}")
 
             # --- Submit and Poll ---
             handler = fal_client.submit(endpoint_id.strip(), arguments=payload)
             request_id = handler.request_id
             print(f"{log_prefix()} Job submitted. Request ID: {request_id}")
-
-            # Poll for the result (e.g., 15 min timeout = 900s)
-            response = _poll_fal_job(endpoint_id, request_id, timeout=900)
+            response = _poll_fal_job(endpoint_id, request_id, timeout=900) # Adjust timeout
             print(f"{log_prefix()} Job {request_id} completed successfully (poller returned).")
             # --- End Submit and Poll ---
 
@@ -867,11 +892,7 @@ class FalAPIVideoGeneratorT2V:
             video_data = response.get('video')
             if isinstance(video_data, dict): video_url = video_data.get('url')
             # ... (other checks for video url) ...
-            if not video_url:
-                 print(f"ERROR: {log_prefix()} Polling succeeded but could not find video 'url' in Fal.ai result.")
-                 print(f"--- Full result: {json.dumps(response, indent=2)}")
-                 return (None,) # Correct return
-
+            if not video_url: raise ValueError(f"Polling succeeded but no video URL found in result: {json.dumps(response, indent=2)}")
             print(f"{log_prefix()} Video URL received: {video_url}")
 
             # --- Download, Save, Extract ---
@@ -879,14 +900,20 @@ class FalAPIVideoGeneratorT2V:
             print(f"{log_prefix()} Downloading video file...")
             video_response = requests.get(video_url, stream=True, timeout=300)
             video_response.raise_for_status()
-            output_dir = folder_paths.get_temp_directory()
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = folder_paths.get_temp_directory(); os.makedirs(output_dir, exist_ok=True)
             # ... (determine extension) ...
             filename = f"fal_api_t2v_temp_{uuid.uuid4().hex}{extension}" # Use T2V prefix
             temp_video_filepath = os.path.join(output_dir, filename)
             with open(temp_video_filepath, 'wb') as video_file: # ... (write file) ...
+                 for chunk in video_response.iter_content(chunk_size=1024*1024): video_file.write(chunk)
             print(f"{log_prefix()} Video downloaded to: {temp_video_filepath}")
             # ... (extract frames into frames_list) ...
+            frames_list = []
+            cap = cv2.VideoCapture(temp_video_filepath)
+            if not cap.isOpened(): raise IOError(f"Could not open video file: {temp_video_filepath}")
+            while True: ret, frame = cap.read(); # ... (extract loop) ...
+                 if not ret: break; frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); frames_list.append(frame_rgb)
+            cap.release()
             if not frames_list: raise ValueError(f"No frames extracted from video: {temp_video_filepath}")
             print(f"{log_prefix()} Extracted {len(frames_list)} frames.")
             frames_np = np.stack(frames_list, axis=0)
@@ -896,55 +923,50 @@ class FalAPIVideoGeneratorT2V:
             print(f"{log_prefix()} Frames tensor shape: {frames_tensor.shape}")
             return (frames_tensor,) # Success return
 
-        # --- Exception Handling with Poller ---
-        except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
-            if request_id:
-                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                 try: fal_client.cancel(endpoint_id, request_id)
-                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,) # Correct return for this node
-        except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id:
-                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                 try: fal_client.cancel(endpoint_id, request_id)
-                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,) # Correct return for this node
-        except RuntimeError as e: # Fal job failures
-             print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}")
-             return (None,) # Correct return for this node
-        except requests.exceptions.RequestException as e:
-             print(f"ERROR: {log_prefix()} Network request failed: {e}")
-             traceback.print_exc(); return (None,)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e:
-             print(f"ERROR: {log_prefix()} Media processing error: {e}")
-             traceback.print_exc(); return (None,)
-        except Exception as e:
-            req_id_str = f"Request ID: {request_id}" if request_id else 'N/A'
-            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
-            traceback.print_exc(); return (None,)
+        # --- Exception Handling with Poller (Same as I2V) ---
+        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
+            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            return (None,)
+        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); # ... (attempt cancel) ...
+            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            return (None,)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
+        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
 
         # --- Final Cleanup ---
         finally:
-            # (Same cleanup logic as before)
-            if cleanup_temp_video and temp_video_filepath and os.path.exists(temp_video_filepath):
-                # ... (try os.remove) ...
-                pass # Placeholder for existing logic
-            elif temp_video_filepath and os.path.exists(temp_video_filepath):
-                 print(f"{log_prefix()} Keeping temporary video file: {temp_video_filepath}")
+             # (Same cleanup logic as I2V)
+             if cleanup_temp_video and temp_video_filepath and os.path.exists(temp_video_filepath):
+                 # ... (try os.remove) ...
+                 pass
+             elif temp_video_filepath and os.path.exists(temp_video_filepath): print(f"{log_prefix()} Keeping temp: {temp_video_filepath}")
 
 
 # --- Define the Omni Pro Node Class with Polling ---
 class FalAPIOmniProNode:
-    # Constants, INPUT_TYPES, RETURN_TYPES, RETURN_NAMES, FUNCTION, CATEGORY remain the same
     AUTO_KEY_START_IMAGE = "image_url"
     AUTO_KEY_END_IMAGE = "end_image_url"
     AUTO_KEY_INPUT_VIDEO = "video_url"
     AUTO_KEY_INPUT_AUDIO = "audio_url"
+
     @classmethod
-    def INPUT_TYPES(cls): return {...} # Keep original definition
-    RETURN_TYPES = ("IMAGE",)
+    def INPUT_TYPES(cls):
+        # Keep original INPUT_TYPES definition
+        return {
+            "required": {
+                "endpoint_id": ("STRING", {"multiline": False, "default": "fal-ai/some-model/endpoint-id"}),
+                "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}),
+                "parameters_json": ("STRING", {"multiline": True, "default": json.dumps({"prompt": "A description", "seed": 12345}, indent=2)}),
+            },
+            "optional": {
+                "start_image": ("IMAGE",), "end_image": ("IMAGE",), "input_video": ("IMAGE",), "input_audio": ("AUDIO",),
+                "cleanup_temp_files": ("BOOLEAN", {"default": True}), "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",) # Still only returns image batch
     RETURN_NAMES = ("image_batch",)
     FUNCTION = "execute_omni_request"
     CATEGORY = "BS_FalAi-API-Omni"
@@ -956,141 +978,164 @@ class FalAPIOmniProNode:
                              cleanup_temp_files=True,
                              output_video_fps=30):
 
-        def log_prefix(): return "FalAPIOmniProNode:" # Specific prefix
+        def log_prefix(): return "FalAPIOmniProNode:"
+
+        # --- Setup and Initializations ---
+        print(f"{log_prefix()} Starting Omni Pro request execution.")
+        uploaded_media_urls = {}
+        temp_files_to_clean = [] # For uploads
+        final_payload = {}
+        temp_download_filepath = None # For download result
+        frames_tensor = None # For video result
+        img_tensor = None # For image result
 
         # --- 1. API Key Setup ---
-        # (Same as before)
         if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)":
-            print(f"ERROR: {log_prefix()} API Key is missing.")
-            return (None,) # Correct return
+            print(f"ERROR: {log_prefix()} API Key is missing."); return (None,)
         api_key_value = api_key.strip()
         try: os.environ["FAL_KEY"] = api_key_value; print(f"{log_prefix()} Using provided API Key.")
-        except Exception as e: print(f"ERROR: {log_prefix()} Failed to set API Key: {e}"); traceback.print_exc(); return (None,) # Correct return
+        except Exception as e: print(f"ERROR: {log_prefix()} Failed to set API Key: {e}"); traceback.print_exc(); return (None,)
 
         # --- 2. Parse User Parameters JSON ---
-        # (Same as before)
         user_params = {}
         try:
-             if parameters_json and parameters_json.strip(): user_params = json.loads(parameters_json); # ... (validate dict) ...
-        except Exception as e: print(f"ERROR: {log_prefix()} Invalid JSON: {e}"); return (None,) # Correct return
+            if parameters_json and parameters_json.strip(): user_params = json.loads(parameters_json); # ... (validate dict) ...
+            if not isinstance(user_params, dict): raise ValueError("JSON must be a dictionary")
+            print(f"{log_prefix()} Parsed parameters JSON.")
+        except Exception as e: print(f"ERROR: {log_prefix()} Invalid JSON: {e}"); return (None,)
 
         # --- 3. Handle and Upload Media Inputs (Automatic) ---
-        # (Same logic as before using helper functions _prepare_image_bytes, _save_tensor_to_temp_video, _save_audio_tensor_to_temp_wav, _upload_media_to_fal)
-        uploaded_media_urls = {}
-        temp_files_to_clean = []
         upload_error = False
         try:
-            # ... (Upload start_image if present) ...
-            if start_image is not None: # ... (prepare, upload, handle error) ...
-                 pass # Placeholder for existing logic
-            # ... (Upload end_image if present) ...
-            if end_image is not None and not upload_error: # ... (prepare, upload, handle error) ...
-                 pass # Placeholder for existing logic
-            # ... (Upload input_video if present) ...
-            if input_video is not None and not upload_error: # ... (save, read, upload, handle error) ...
-                 pass # Placeholder for existing logic
-            # ... (Upload input_audio if present) ...
-            if input_audio is not None and not upload_error: # ... (save, read, upload, handle error) ...
-                 pass # Placeholder for existing logic
-        except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); upload_error = True
+            if start_image is not None:
+                 img_bytes, ct = _prepare_image_bytes(start_image)
+                 if img_bytes: url = _upload_media_to_fal(img_bytes, "start_img.png", ct); #... set uploaded_media_urls[self.AUTO_KEY_START_IMAGE] ...
+                 else: upload_error = True
+                 if not url: upload_error=True
+            if end_image is not None and not upload_error:
+                 img_bytes, ct = _prepare_image_bytes(end_image)
+                 if img_bytes: url = _upload_media_to_fal(img_bytes, "end_img.png", ct); #... set uploaded_media_urls[self.AUTO_KEY_END_IMAGE] ...
+                 else: upload_error = True
+                 if not url: upload_error=True
+            if input_video is not None and not upload_error:
+                 temp_vid_path = _save_tensor_to_temp_video(input_video, fps=output_video_fps)
+                 if temp_vid_path: temp_files_to_clean.append(temp_vid_path); #... read bytes, upload, set uploaded_media_urls[self.AUTO_KEY_INPUT_VIDEO] ...
+                 else: upload_error = True
+            if input_audio is not None and not upload_error:
+                 temp_aud_path = _save_audio_tensor_to_temp_wav(input_audio)
+                 if temp_aud_path: temp_files_to_clean.append(temp_aud_path); #... read bytes, upload, set uploaded_media_urls[self.AUTO_KEY_INPUT_AUDIO] ...
+                 else: upload_error = True
+
+        except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (cleanup) ...
-            return (None,) # Correct return
+            return (None,)
 
         # --- 4. Construct Final Payload ---
-        # (Same logic as before)
         final_payload = user_params.copy()
-        for auto_key, url in uploaded_media_urls.items(): # ... (inject/overwrite) ...
-            pass # Placeholder for existing logic
-        print(f"{log_prefix()} Final Payload: {json.dumps(final_payload, indent=2)}") # Debug payload
+        print(f"{log_prefix()} Injecting uploaded media URLs...")
+        for auto_key, url in uploaded_media_urls.items():
+            if auto_key in final_payload: print(f"WARN: {log_prefix()} Overwriting key '{auto_key}' in JSON.")
+            final_payload[auto_key] = url
+        print(f"{log_prefix()} Final Payload: {json.dumps(final_payload, indent=2)}")
 
-        # --- 5. API Call with Polling, Download, Frame Extraction ---
+        # --- 5. API Call with Polling, Download, Process ---
         request_id = None
         result_url = None
         result_content_type = None
-        temp_download_filepath = None
-        frames_tensor = None # Initialize for video case
-        img_tensor = None # Initialize for image case
 
         try:
             print(f"{log_prefix()} Submitting job to endpoint: {endpoint_id}")
-            if not endpoint_id or not endpoint_id.strip(): raise ValueError("Endpoint ID cannot be empty.")
+            if not endpoint_id or not endpoint_id.strip(): raise ValueError("Endpoint ID missing")
 
             # --- Submit and Poll ---
             handler = fal_client.submit(endpoint_id.strip(), arguments=final_payload)
             request_id = handler.request_id
             print(f"{log_prefix()} Job submitted. Request ID: {request_id}")
-
-            response = _poll_fal_job(endpoint_id, request_id, timeout=900) # Adjust timeout as needed
+            response = _poll_fal_job(endpoint_id, request_id, timeout=900) # Adjust timeout
             print(f"{log_prefix()} Job {request_id} completed successfully (poller returned).")
             # --- End Submit and Poll ---
 
-            # --- Process Response (Flexible Omni logic) ---
-            # (Same flexible logic as before to find result_url and determine if video/image)
+            # --- Process Response (Flexible Omni Logic) ---
             is_video = False
             is_image = False
-            # ... (logic to set result_url, result_content_type, is_video, is_image) ...
-            # Ensure this section correctly identifies the media type and URL from 'response'
-            if not result_url: print(f"WARN: {log_prefix()} No media URL found in result."); return (None,) # Correct return
+            if isinstance(response, dict):
+                # ... (reuse flexible logic to find result_url and determine is_video/is_image) ...
+                 if 'video' in response and isinstance(response['video'], dict) and 'url' in response['video']: result_url = response['video']['url']; result_content_type = response['video'].get('content_type'); is_video=True
+                 elif 'videos' in response and isinstance(response['videos'], list) and len(response['videos'])>0 and isinstance(response['videos'][0], dict) and 'url' in response['videos'][0]: result_url=response['videos'][0]['url']; result_content_type = response['videos'][0].get('content_type'); is_video=True
+                 elif 'image' in response and isinstance(response['image'], dict) and 'url' in response['image']: result_url = response['image']['url']; result_content_type = response['image'].get('content_type'); is_image=True
+                 elif 'images' in response and isinstance(response['images'], list) and len(response['images'])>0 and isinstance(response['images'][0], dict) and 'url' in response['images'][0]: result_url=response['images'][0]['url']; result_content_type = response['images'][0].get('content_type'); is_image=True
+                 elif 'url' in response and isinstance(response['url'], str): result_url = response['url']; result_content_type = response.get('content_type'); # Guess type needed
+                 if result_url and not is_video and not is_image: # Guess type if needed
+                     if result_content_type:
+                         if 'video' in result_content_type: is_video=True
+                         elif 'image' in result_content_type: is_image=True
+                     if not is_video and not is_image: # Fallback guess by extension
+                        if any(ext in result_url.lower() for ext in ['.mp4','.webm']): is_video=True
+                        elif any(ext in result_url.lower() for ext in ['.png','.jpg','.jpeg','.webp']): is_image=True
 
-            # --- Download and Process Result ---
-            print(f"{log_prefix()} Downloading result: {result_url} (Type: {'Video' if is_video else 'Image' if is_image else 'Unknown'})")
+            if not result_url: print(f"WARN: {log_prefix()} No media URL found in result."); return (None,)
+
+            # --- Download and Process ---
+            print(f"{log_prefix()} Downloading result: {result_url}")
             media_response = requests.get(result_url, stream=True, timeout=600)
             media_response.raise_for_status()
 
             if is_video:
-                # (Same logic as I2V/T2V to save temp file, extract frames, create frames_tensor)
-                # ... (save to temp_download_filepath) ...
-                # ... (extract frames into frames_list) ...
+                # (Logic to save video, extract frames, create frames_tensor)
+                output_dir = folder_paths.get_temp_directory(); os.makedirs(output_dir, exist_ok=True)
+                extension = '.mp4' #... determine extension ...
+                filename = f"fal_omni_result_vid_{uuid.uuid4().hex}{extension}"
+                temp_download_filepath = os.path.join(output_dir, filename)
+                temp_files_to_clean.append(temp_download_filepath) # Add download path for potential cleanup
+                with open(temp_download_filepath, 'wb') as f: #... write file ...
+                    for chunk in media_response.iter_content(chunk_size=1024*1024): f.write(chunk)
+                print(f"{log_prefix()} Video downloaded: {temp_download_filepath}")
+                #... extract frames ...
+                frames_list = []
+                cap = cv2.VideoCapture(temp_download_filepath); #... check if opened ...
+                while True: ret, frame = cap.read(); #... extract loop ...
+                    if not ret: break; frames_list.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+                cap.release()
                 if not frames_list: raise ValueError("No frames extracted")
-                frames_np = np.stack(frames_list, axis=0)
-                frames_tensor = torch.from_numpy(frames_np).float() / 255.0
-                if frames_tensor is None: raise ValueError("Frame tensor processing failed.")
-                print(f"{log_prefix()} Video result processed. Tensor shape: {frames_tensor.shape}")
-                return (frames_tensor,) # Success return for video
+                frames_np = np.stack(frames_list); frames_tensor = torch.from_numpy(frames_np).float()/255.0
+                if frames_tensor is None: raise ValueError("Frame tensor failed")
+                print(f"{log_prefix()} Video processed. Shape: {frames_tensor.shape}")
+                return (frames_tensor,) # Success for video
 
             elif is_image:
-                # (Same logic as Omni node before to process image)
+                # (Logic to create img_tensor from image bytes)
                 image_bytes = media_response.content
                 pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
                 img_np = np.array(pil_image, dtype=np.float32) / 255.0
                 img_tensor = torch.from_numpy(img_np).unsqueeze(0)
-                print(f"{log_prefix()} Image result processed. Tensor shape: {img_tensor.shape}")
-                return (img_tensor,) # Success return for image
-
+                print(f"{log_prefix()} Image processed. Shape: {img_tensor.shape}")
+                return (img_tensor,) # Success for image
             else:
-                 print(f"ERROR: {log_prefix()} Could not determine result type (video/image).")
-                 return (None,) # Correct return
+                 print(f"ERROR: {log_prefix()} Could not determine result type.")
+                 return (None,)
 
-        # --- Exception Handling with Poller ---
-        except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
-            if request_id: # ... (attempt cancel) ...
-                pass # Placeholder for cancel logic
-            return (None,) # Correct return for this node
-        except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id: # ... (attempt cancel) ...
-                pass # Placeholder for cancel logic
-            return (None,) # Correct return for this node
-        except RuntimeError as e: # Fal job failures
-             print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}")
-             return (None,) # Correct return for this node
-        except requests.exceptions.RequestException as e:
-             print(f"ERROR: {log_prefix()} Network request failed: {e}")
-             traceback.print_exc(); return (None,)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e:
-             print(f"ERROR: {log_prefix()} Media processing error: {e}")
-             traceback.print_exc(); return (None,)
-        except Exception as e:
-            req_id_str = f"Request ID: {request_id}" if request_id else 'N/A'
-            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
-            traceback.print_exc(); return (None,)
+        # --- Exception Handling with Poller (Same pattern as other nodes) ---
+        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); #... cancel ...
+            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            return (None,)
+        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); #... cancel ...
+            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            return (None,)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
+        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
 
         # --- Final Cleanup ---
         finally:
-            # (Same cleanup logic as before)
-            if cleanup_temp_files: # ... (cleanup temp_files_to_clean and temp_download_filepath if exists) ...
-                pass # Placeholder for cleanup logic
+            # Cleanup upload temp files AND download temp file
+            if cleanup_temp_files:
+                print(f"{log_prefix()} Cleaning up temporary files...")
+                all_temp_files = temp_files_to_clean + ([temp_download_filepath] if temp_download_filepath else [])
+                for temp_file in all_temp_files:
+                    if temp_file and os.path.exists(temp_file):
+                        try: print(f"{log_prefix()} Removing: {temp_file}"); os.remove(temp_file)
+                        except Exception as e: print(f"WARN: {log_prefix()} Failed cleanup: {e}")
             else: print(f"{log_prefix()} Skipping cleanup.")
 
 
@@ -1117,15 +1162,15 @@ class FalAILipSyncNode:
                         cleanup_temp_files=True,
                         output_video_fps=30):
 
-        def log_prefix(): return "FalAILipSyncNode:" # Specific prefix
+        def log_prefix(): return "FalAILipSyncNode:"
 
         # --- Setup and Initializations ---
         print(f"{log_prefix()} Starting LipSync request execution for version: {endpoint_version}")
         uploaded_media_urls = {}
-        temp_files_to_clean = []
+        temp_files_to_clean = [] # Upload temps
         payload = {}
-        temp_download_filepath = None
-        frames_tensor = None # Initialize here
+        temp_download_filepath = None # Download temp
+        frames_tensor = None # Initialize result
 
         # --- 1. Select Endpoint ---
         if endpoint_version == "v2.0": endpoint_to_call = self.ENDPOINT_V2
@@ -1145,6 +1190,7 @@ class FalAILipSyncNode:
         if input_audio is None: print(f"ERROR: {log_prefix()} 'input_audio' is required."); return (None, None, None)
 
         # --- 4. Handle and Upload Media Inputs ---
+        # (Same logic as before using helper functions)
         upload_error = False
         try:
             # Video Upload
@@ -1174,7 +1220,10 @@ class FalAILipSyncNode:
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Failed saving audio tensor.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (cleanup) ...
-            return (None, None, None)
+             if cleanup_temp_files: # Add early cleanup here too
+                 for tf in temp_files_to_clean:
+                      if tf and os.path.exists(tf): try: os.remove(tf); except Exception: pass
+             return (None, None, None)
 
         # --- 5. Construct Final Payload ---
         payload = {}
@@ -1189,7 +1238,7 @@ class FalAILipSyncNode:
         request_id = None
         result_url = None
         result_content_type = None
-        # frames_tensor = None # Already initialized
+        # frames_tensor = None # Initialized above
 
         try:
             print(f"{log_prefix()} Submitting job to: {endpoint_to_call}")
@@ -1206,25 +1255,21 @@ class FalAILipSyncNode:
                 result_url = response['video']['url']
                 result_content_type = response['video'].get('content_type', 'video/mp4')
             else:
-                 print(f"ERROR: {log_prefix()} Polling succeeded but couldn't find 'video.url' in result.")
-                 print(f"--- Final result: --- \n{json.dumps(response, indent=2)}")
-                 return (None, None, None) # Correct return
-
+                 raise ValueError(f"Polling succeeded but couldn't find 'video.url' in result: {json.dumps(response, indent=2)}")
             print(f"{log_prefix()} Result Video URL: {result_url}")
 
             # --- Download, Save, Extract ---
             print(f"{log_prefix()} Downloading result video...")
             media_response = requests.get(result_url, stream=True, timeout=600)
             media_response.raise_for_status()
-            output_dir = folder_paths.get_temp_directory()
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = folder_paths.get_temp_directory(); os.makedirs(output_dir, exist_ok=True)
             extension = '.mp4'
             if result_content_type and 'webm' in result_content_type: extension = '.webm'
             elif result_url.lower().endswith('.webm'): extension = '.webm'
             filename = f"fal_lipsync_result_{uuid.uuid4().hex}{extension}"
             temp_download_filepath = os.path.join(output_dir, filename)
-            temp_files_to_clean.append(temp_download_filepath)
-            with open(temp_download_filepath, 'wb') as f_out:
+            temp_files_to_clean.append(temp_download_filepath) # Add download path for cleanup
+            with open(temp_download_filepath, 'wb') as f_out: # ... write file ...
                 for chunk in media_response.iter_content(chunk_size=1024*1024): f_out.write(chunk)
             print(f"{log_prefix()} Video downloaded to: {temp_download_filepath}")
 
@@ -1233,7 +1278,7 @@ class FalAILipSyncNode:
             cap = cv2.VideoCapture(temp_download_filepath)
             if not cap.isOpened(): raise IOError(f"Could not open downloaded video: {temp_download_filepath}")
             while True: ret, frame = cap.read(); # ... (extract loop) ...
-                 if not ret: break; frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); frames_list.append(frame_rgb) # Condensed loop
+                 if not ret: break; frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB); frames_list.append(frame_rgb)
             cap.release()
             if not frames_list: raise ValueError(f"No frames extracted from video: {temp_download_filepath}")
             print(f"{log_prefix()} Extracted {len(frames_list)} frames.")
@@ -1242,38 +1287,37 @@ class FalAILipSyncNode:
 
             if frames_tensor is None: raise ValueError("Frame tensor processing failed.") # Keep check
             print(f"{log_prefix()} Frames tensor shape: {frames_tensor.shape}")
-            return (frames_tensor, input_audio, temp_download_filepath) # Success return
+            # Return SUCCESS tuple
+            return (frames_tensor, input_audio, temp_download_filepath)
 
         # --- Exception Handling with Poller ---
-        except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
-            if request_id: print(f"{log_prefix()} Attempting cancel..."); # ... (try fal_client.cancel) ...
+        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... cancel ...
+            if request_id: try: fal_client.cancel(endpoint_to_call, request_id); except Exception: pass
             return (None, None, None) # Correct return
-        except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
-            if request_id: print(f"{log_prefix()} Attempting cancel..."); # ... (try fal_client.cancel) ...
+        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); # ... cancel ...
+            if request_id: try: fal_client.cancel(endpoint_to_call, request_id); except Exception: pass
             return (None, None, None) # Correct return
-        except RuntimeError as e: # Fal job failures
-             print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}")
-             return (None, None, None) # Correct return
-        except requests.exceptions.RequestException as e:
-             print(f"ERROR: {log_prefix()} Network request failed: {e}")
-             traceback.print_exc(); return (None, None, None)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e:
-             print(f"ERROR: {log_prefix()} Media processing error: {e}")
-             traceback.print_exc(); return (None, None, None)
-        except Exception as e:
-            req_id_str = f"Request ID: {request_id}" if request_id else 'N/A'
-            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
-            traceback.print_exc(); return (None, None, None)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None, None, None) # Correct return
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None, None, None)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None, None, None)
+        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None, None, None)
 
         # --- Final Cleanup ---
         finally:
-            # (Same cleanup logic as before)
-            if cleanup_temp_files: # ... (loop and remove temp_files_to_clean) ...
-                pass # Placeholder
-            else: # ... (print skipping message) ...
-                pass # Placeholder
+             # Cleanup upload temps AND download temp
+            if cleanup_temp_files:
+                print(f"{log_prefix()} Cleaning up temporary files...")
+                # Combine upload temps and download temp (if it exists)
+                all_temp_files = temp_files_to_clean + ([temp_download_filepath] if temp_download_filepath else [])
+                for temp_file in all_temp_files:
+                    if temp_file and os.path.exists(temp_file):
+                        try: print(f"{log_prefix()} Removing: {temp_file}"); os.remove(temp_file)
+                        except Exception as e: print(f"WARN: {log_prefix()} Failed cleanup: {e}")
+            else:
+                 all_temp_files = temp_files_to_clean + ([temp_download_filepath] if temp_download_filepath else [])
+                 if all_temp_files:
+                      print(f"{log_prefix()} Skipping cleanup for temporary files:")
+                      for tf in all_temp_files: print(f" - {tf}")
 
 
 # --- Node Registration (Keep as is) ---
