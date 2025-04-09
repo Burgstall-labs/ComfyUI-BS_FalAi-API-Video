@@ -1534,8 +1534,8 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
             }
         }
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image_batch",)
+    RETURN_TYPES = ("IMAGE", "AUDIO", "STRING")
+    RETURN_NAMES = ("image_batch", "synced_audio", "video_path")
     FUNCTION = "execute_lipsync"
     CATEGORY = "BS_FalAi-API-Video" # Keep in the same category
 
@@ -1553,6 +1553,8 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
         temp_files_to_clean = []
         payload = {}
 
+        temp_download_filepath = None
+
         # --- 1. Select Endpoint based on version ---
         if endpoint_version == "v2.0":
             endpoint_to_call = self.ENDPOINT_V2
@@ -1560,14 +1562,14 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
             endpoint_to_call = self.ENDPOINT_V1_9
         else:
             print(f"ERROR: {log_prefix()} Invalid endpoint_version selected: {endpoint_version}")
-            return (None,)
+            return (None, None, None)
         print(f"{log_prefix()} Targeting endpoint: {endpoint_to_call}")
 
         # --- 2. API Key Setup ---
         # (Same as before)
         if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)":
             print(f"ERROR: {log_prefix()} API Key input field is empty or contains default text.")
-            return (None,)
+            return (None, None, None)
         api_key_value = api_key.strip()
         if ':' not in api_key_value and len(api_key_value) < 20:
              print(f"WARN: {log_prefix()} API Key format may be incorrect.")
@@ -1576,16 +1578,16 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
             print(f"{log_prefix()} Using provided API Key.")
         except Exception as e:
              print(f"ERROR: {log_prefix()} Failed to set API Key environment variable: {e}")
-             traceback.print_exc(); return (None,)
+             traceback.print_exc(); return (None, None, None)
 
         # --- 3. Validate Required Inputs ---
         # (Same as before)
         if input_video is None:
              print(f"ERROR: {log_prefix()} 'input_video' is required.")
-             return (None,)
+             return (None, None, None)
         if input_audio is None:
              print(f"ERROR: {log_prefix()} 'input_audio' is required.")
-             return (None,)
+             return (None, None, None)
 
         # --- 4. Handle and Upload Media Inputs (Required) ---
         # (Same upload logic as before, using helper functions)
@@ -1630,7 +1632,7 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
                      if os.path.exists(temp_file):
                          try: os.remove(temp_file)
                          except Exception as clean_e: print(f"WARN: {log_prefix()} Early cleanup failed: {clean_e}")
-             return (None,)
+             return (None, None, None)
 
         # --- 5. Construct Final Payload (Conditional Model Param) ---
         payload = {}
@@ -1656,8 +1658,7 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
         request_id = None
         result_url = None
         result_content_type = None
-        temp_download_filepath = None
-
+        
         try:
             print(f"{log_prefix()} Submitting job to: {endpoint_to_call}")
             handler = fal_client.submit(endpoint_to_call, arguments=payload)
@@ -1716,27 +1717,27 @@ class FalAILipSyncNode: # Renamed class slightly to be more general
                 frame_count += 1
             cap.release()
             if not frames_list: raise ValueError(f"No frames extracted from video: {temp_download_filepath}")
-            print(f"{log_prefix()} Extracted {frame_count} frames.")
+            print(f"{log_prefix()} Frames tensor shape: {frames_tensor.shape}")
 
             frames_np = np.stack(frames_list, axis=0)
             frames_tensor = torch.from_numpy(frames_np).float() / 255.0
             print(f"{log_prefix()} Frames tensor shape: {frames_tensor.shape}")
-            return (frames_tensor,)
+            return (frames_tensor, input_audio, temp_download_filepath)
 
         # --- Exception Handling --- (Same as before)
         except requests.exceptions.RequestException as e:
              url_for_error = result_url if result_url else f"API Endpoint: {endpoint_to_call}"
              print(f"ERROR: {log_prefix()} Network request failed ({url_for_error}): {e}")
-             traceback.print_exc(); return (None,)
+             traceback.print_exc(); return (None, None, None)
         except (cv2.error, IOError, ValueError) as e:
              print(f"ERROR: {log_prefix()} Media processing error: {e}")
-             traceback.print_exc(); return (None,)
+             traceback.print_exc(); return (None, None, None)
         except Exception as e:
             req_id_str = f"Request ID: {request_id}" if request_id else "N/A"
             print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
             if "404" in str(e) or "not found" in str(e):
                  print(f"--- Hint: Check API key validity and if the endpoint '{endpoint_to_call}' is correct/accessible. ---")
-            traceback.print_exc(); return (None,)
+            traceback.print_exc(); return (None, None, None)
 
         # --- Final Cleanup --- (Same as before)
         finally:
