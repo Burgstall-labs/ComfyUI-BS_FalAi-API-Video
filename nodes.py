@@ -1486,14 +1486,265 @@ class FalAPIOmniProNode:
             #     print(f"{log_prefix()} Unset FAL_KEY environment variable.")
 
 
+class FalAILipSyncNode: # Renamed class slightly to be more general
+    # Define the payload keys used by either endpoint version
+    PAYLOAD_KEY_VIDEO = "video_url"
+    PAYLOAD_KEY_AUDIO = "audio_url"
+    PAYLOAD_KEY_SYNC_MODE = "sync_mode"
+    PAYLOAD_KEY_MODEL = "model" # Specific to v1.9 endpoint
+
+    ENDPOINT_V2 = "fal-ai/sync-lipsync/v2"
+    ENDPOINT_V1_9 = "fal-ai/sync-lipsync"
+
+    MODEL_OPTIONS_V1_9 = ["lipsync-1.9.0-beta", "lipsync-1.8.0", "lipsync-1.7.1"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "api_key": ("STRING", {
+                    "multiline": False,
+                    "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"
+                }),
+                "endpoint_version": (["v2.0", "v1.9"], {"default": "v2.0"}), # Selector for endpoint
+                "input_video": ("IMAGE",),
+                "input_audio": ("AUDIO",),
+            },
+            "optional": {
+                "sync_mode": (["cut_off", "loop", "bounce"], {"default": "cut_off"}),
+                "model": (cls.MODEL_OPTIONS_V1_9, {"default": "lipsync-1.9.0-beta"}), # Model choice (only used for v1.9)
+                "cleanup_temp_files": ("BOOLEAN", {"default": True}),
+                "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image_batch",)
+    FUNCTION = "execute_lipsync"
+    CATEGORY = "BS_FalAi-API-Video" # Keep in the same category
+
+    # --- Main Execution Method ---
+    def execute_lipsync(self, api_key, endpoint_version, input_video, input_audio, # Required inputs
+                        sync_mode="cut_off", model="lipsync-1.9.0-beta", # Optional inputs
+                        cleanup_temp_files=True,
+                        output_video_fps=30):
+
+        # Use a specific log prefix
+        def log_prefix(): return "FalAILipSyncNode:"
+
+        print(f"{log_prefix()} Starting LipSync request execution for version: {endpoint_version}")
+        uploaded_media_urls = {}
+        temp_files_to_clean = []
+        payload = {}
+
+        # --- 1. Select Endpoint based on version ---
+        if endpoint_version == "v2.0":
+            endpoint_to_call = self.ENDPOINT_V2
+        elif endpoint_version == "v1.9":
+            endpoint_to_call = self.ENDPOINT_V1_9
+        else:
+            print(f"ERROR: {log_prefix()} Invalid endpoint_version selected: {endpoint_version}")
+            return (None,)
+        print(f"{log_prefix()} Targeting endpoint: {endpoint_to_call}")
+
+        # --- 2. API Key Setup ---
+        # (Same as before)
+        if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)":
+            print(f"ERROR: {log_prefix()} API Key input field is empty or contains default text.")
+            return (None,)
+        api_key_value = api_key.strip()
+        if ':' not in api_key_value and len(api_key_value) < 20:
+             print(f"WARN: {log_prefix()} API Key format may be incorrect.")
+        try:
+            os.environ["FAL_KEY"] = api_key_value
+            print(f"{log_prefix()} Using provided API Key.")
+        except Exception as e:
+             print(f"ERROR: {log_prefix()} Failed to set API Key environment variable: {e}")
+             traceback.print_exc(); return (None,)
+
+        # --- 3. Validate Required Inputs ---
+        # (Same as before)
+        if input_video is None:
+             print(f"ERROR: {log_prefix()} 'input_video' is required.")
+             return (None,)
+        if input_audio is None:
+             print(f"ERROR: {log_prefix()} 'input_audio' is required.")
+             return (None,)
+
+        # --- 4. Handle and Upload Media Inputs (Required) ---
+        # (Same upload logic as before, using helper functions)
+        upload_error = False
+        try:
+            # --- Input Video ---
+            print(f"{log_prefix()} Processing required input_video...")
+            temp_video_path = _save_tensor_to_temp_video(input_video, fps=output_video_fps)
+            if temp_video_path and os.path.exists(temp_video_path):
+                temp_files_to_clean.append(temp_video_path)
+                with open(temp_video_path, 'rb') as vf: video_bytes = vf.read()
+                if video_bytes:
+                    url = _upload_media_to_fal(video_bytes, "input_video.mp4", "video/mp4")
+                    if url: uploaded_media_urls[self.PAYLOAD_KEY_VIDEO] = url
+                    else: upload_error = True; print(f"ERROR: {log_prefix()} Failed video upload.")
+                else: upload_error = True; print(f"ERROR: {log_prefix()} Failed reading temp video bytes.")
+            else: upload_error = True; print(f"ERROR: {log_prefix()} Failed saving video tensor.")
+
+            # --- Input Audio ---
+            if not upload_error:
+                print(f"{log_prefix()} Processing required input_audio...")
+                temp_audio_path = _save_audio_tensor_to_temp_wav(input_audio)
+                if temp_audio_path and os.path.exists(temp_audio_path):
+                    temp_files_to_clean.append(temp_audio_path)
+                    with open(temp_audio_path, 'rb') as af: audio_bytes = af.read()
+                    if audio_bytes:
+                        url = _upload_media_to_fal(audio_bytes, "input_audio.wav", "audio/wav")
+                        if url: uploaded_media_urls[self.PAYLOAD_KEY_AUDIO] = url
+                        else: upload_error = True; print(f"ERROR: {log_prefix()} Failed audio upload.")
+                    else: upload_error = True; print(f"ERROR: {log_prefix()} Failed reading temp audio bytes.")
+                else: upload_error = True; print(f"ERROR: {log_prefix()} Failed saving audio tensor.")
+
+        except Exception as e:
+             print(f"ERROR: {log_prefix()} Unexpected error during media processing: {e}")
+             traceback.print_exc(); upload_error = True
+
+        if upload_error:
+             print(f"ERROR: {log_prefix()} Aborting due to media errors.")
+             # Early cleanup
+             if cleanup_temp_files:
+                 for temp_file in temp_files_to_clean:
+                     if os.path.exists(temp_file):
+                         try: os.remove(temp_file)
+                         except Exception as clean_e: print(f"WARN: {log_prefix()} Early cleanup failed: {clean_e}")
+             return (None,)
+
+        # --- 5. Construct Final Payload (Conditional Model Param) ---
+        payload = {}
+        payload[self.PAYLOAD_KEY_VIDEO] = uploaded_media_urls[self.PAYLOAD_KEY_VIDEO]
+        payload[self.PAYLOAD_KEY_AUDIO] = uploaded_media_urls[self.PAYLOAD_KEY_AUDIO]
+        payload[self.PAYLOAD_KEY_SYNC_MODE] = sync_mode
+
+        # Conditionally add the model parameter only for v1.9
+        if endpoint_version == "v1.9":
+            payload[self.PAYLOAD_KEY_MODEL] = model
+            print(f"{log_prefix()} Adding 'model': {model} parameter for v1.9.")
+        else:
+            # Optional: Log if the model param was provided but isn't used for v2.0
+            # This helps avoid user confusion. Check against the default.
+            if model != self.MODEL_OPTIONS_V1_9[0]: # Check if user changed from default
+                 print(f"WARN: {log_prefix()} 'model' parameter ('{model}') is ignored for endpoint version v2.0.")
+
+        print(f"{log_prefix()} Final Payload constructed:")
+        print(json.dumps(payload, indent=2))
+
+        # --- 6. API Call, Download, Frame Extraction ---
+        # (This section remains largely the same, using the determined 'endpoint_to_call')
+        request_id = None
+        result_url = None
+        result_content_type = None
+        temp_download_filepath = None
+
+        try:
+            print(f"{log_prefix()} Submitting job to: {endpoint_to_call}")
+            handler = fal_client.submit(endpoint_to_call, arguments=payload)
+            request_id = handler.request_id
+            print(f"{log_prefix()} Job submitted. Request ID: {request_id}")
+            print(f"{log_prefix()} Waiting for Fal.ai job completion...")
+
+            response = handler.get()
+            print(f"{log_prefix()} Fal.ai job completed.")
+            # print(f"{log_prefix()} Full response: {json.dumps(response, indent=2)}") # Debug
+
+            # --- Process Response (Should be same structure for both versions) ---
+            if isinstance(response, dict) and \
+               'video' in response and isinstance(response['video'], dict) and \
+               'url' in response['video']:
+                result_url = response['video']['url']
+                result_content_type = response['video'].get('content_type', 'video/mp4')
+            else:
+                 print(f"ERROR: {log_prefix()} Could not find 'video.url' in Fal.ai response.")
+                 print(f"--- Full response received: --- \n{json.dumps(response, indent=2)}\n-----------------------------")
+                 return (None,)
+
+            print(f"{log_prefix()} Result Video URL found: {result_url}")
+            print(f"{log_prefix()} Result Content-Type: {result_content_type or 'Unknown'}")
+
+            # --- Download and Extract Frames ---
+            # (Identical logic as before)
+            print(f"{log_prefix()} Downloading result video...")
+            media_response = requests.get(result_url, stream=True, timeout=600)
+            media_response.raise_for_status()
+
+            output_dir = folder_paths.get_temp_directory()
+            os.makedirs(output_dir, exist_ok=True)
+            extension = '.mp4'
+            if result_content_type and 'video/webm' in result_content_type: extension = '.webm'
+            elif result_url.lower().endswith('.webm'): extension = '.webm'
+
+            filename = f"fal_lipsync_result_{uuid.uuid4().hex}{extension}"
+            temp_download_filepath = os.path.join(output_dir, filename)
+            temp_files_to_clean.append(temp_download_filepath)
+
+            with open(temp_download_filepath, 'wb') as f_out:
+                for chunk in media_response.iter_content(chunk_size=1024*1024): f_out.write(chunk)
+            print(f"{log_prefix()} Video downloaded to: {temp_download_filepath}")
+
+            print(f"{log_prefix()} Extracting frames...")
+            frames_list = []
+            cap = cv2.VideoCapture(temp_download_filepath)
+            if not cap.isOpened(): raise IOError(f"Could not open downloaded video: {temp_download_filepath}")
+            frame_count = 0
+            while True:
+                ret, frame = cap.read()
+                if not ret: break
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames_list.append(frame_rgb)
+                frame_count += 1
+            cap.release()
+            if not frames_list: raise ValueError(f"No frames extracted from video: {temp_download_filepath}")
+            print(f"{log_prefix()} Extracted {frame_count} frames.")
+
+            frames_np = np.stack(frames_list, axis=0)
+            frames_tensor = torch.from_numpy(frames_np).float() / 255.0
+            print(f"{log_prefix()} Frames tensor shape: {frames_tensor.shape}")
+            return (frames_tensor,)
+
+        # --- Exception Handling --- (Same as before)
+        except requests.exceptions.RequestException as e:
+             url_for_error = result_url if result_url else f"API Endpoint: {endpoint_to_call}"
+             print(f"ERROR: {log_prefix()} Network request failed ({url_for_error}): {e}")
+             traceback.print_exc(); return (None,)
+        except (cv2.error, IOError, ValueError) as e:
+             print(f"ERROR: {log_prefix()} Media processing error: {e}")
+             traceback.print_exc(); return (None,)
+        except Exception as e:
+            req_id_str = f"Request ID: {request_id}" if request_id else "N/A"
+            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
+            if "404" in str(e) or "not found" in str(e):
+                 print(f"--- Hint: Check API key validity and if the endpoint '{endpoint_to_call}' is correct/accessible. ---")
+            traceback.print_exc(); return (None,)
+
+        # --- Final Cleanup --- (Same as before)
+        finally:
+            if cleanup_temp_files:
+                print(f"{log_prefix()} Cleaning up temporary files...")
+                for temp_file in temp_files_to_clean:
+                    if temp_file and os.path.exists(temp_file):
+                        try: os.remove(temp_file)
+                        except Exception as e: print(f"WARN: {log_prefix()} Failed to delete temp file '{temp_file}': {e}")
+            else:
+                 if temp_files_to_clean:
+                      print(f"{log_prefix()} Skipping cleanup for temporary files.")
+
 NODE_CLASS_MAPPINGS = {
     "FalAPIVideoGeneratorI2V": FalAPIVideoGeneratorI2V,
     "FalAPIVideoGeneratorT2V": FalAPIVideoGeneratorT2V,
     "FalAPIOmniProNode": FalAPIOmniProNode,
+    "FalAILipSyncNode": FalAILipSyncNode, # Changed class name here
 }
 
+# Update NODE_DISPLAY_NAME_MAPPINGS dictionary
 NODE_DISPLAY_NAME_MAPPINGS = {
     "FalAPIVideoGeneratorI2V": "FAL AI Image-to-Video",
     "FalAPIVideoGeneratorT2V": "FAL AI Text-to-Video",
-    "FalAPIOmniProNode": "fal.ai API Omni Pro Node"
+    "FalAPIOmniProNode": "FAL AI API Omni Pro Node",
+    "FalAILipSyncNode": "FAL AI API LipSync Node (v1.9/v2.0)", # Updated display name
 }
