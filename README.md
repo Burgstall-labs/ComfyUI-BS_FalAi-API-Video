@@ -119,7 +119,7 @@ This node offers maximum flexibility but requires you to know the specifics of t
 *   `opencv-python`
 *   `scipy`
 
-(A `requirements.txt` file is recommended for easy installation.)
+(A `requirements.txt` file is included for easy installation.)
 
 ## Notes & Troubleshooting
 
