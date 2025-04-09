@@ -1039,23 +1039,34 @@ def _upload_media_to_fal(media_bytes, filename_hint, content_type):
 def _save_audio_tensor_to_temp_wav(audio_data):
     """
     Saves audio data (from ComfyUI AUDIO type) to a temporary WAV file.
+    Handles both 'samples' and 'waveform' keys for the tensor.
     Returns the path to the temporary file.
     """
-    # --- ADD THIS DEBUG PRINT ---
+    # --- Debug prints ---
     print(f"[Fal Helper] _save_audio_tensor_to_temp_wav received audio_data type: {type(audio_data)}")
     if isinstance(audio_data, dict):
-         print(f"[Fal Helper] audio_data keys: {audio_data.keys()}")
-    # --- END OF DEBUG PRINT ---
+        print(f"[Fal Helper] audio_data keys: {audio_data.keys()}")
+    # --- End Debug ---
 
-    if not audio_data or 'samples' not in audio_data or 'sample_rate' not in audio_data:
-        # Use the generic prefix here too
-        print(f"ERROR: [Fal Helper] Invalid audio data received.")
+    # --- MODIFIED CHECK: Look for sample_rate and EITHER samples OR waveform ---
+    if not isinstance(audio_data, dict) or 'sample_rate' not in audio_data or \
+       ('samples' not in audio_data and 'waveform' not in audio_data):
+        print(f"ERROR: [Fal Helper] Invalid audio data received. Expected dict with 'sample_rate' and either 'samples' or 'waveform'.")
         return None
+    # --- END MODIFIED CHECK ---
 
     sample_rate = audio_data['sample_rate']
-    samples_tensor = audio_data['samples']
+    # --- MODIFIED TENSOR ACCESS ---
+    # Get the tensor regardless of the key ('samples' or 'waveform')
+    samples_tensor = audio_data.get('samples') or audio_data.get('waveform')
+    if samples_tensor is None:
+         # This case should be caught by the check above, but double-check
+         print(f"ERROR: [Fal Helper] Could not find audio tensor under 'samples' or 'waveform' key.")
+         return None
+    # --- END MODIFIED TENSOR ACCESS ---
 
-    print(f"{log_prefix()} Processing audio tensor (Sample Rate: {sample_rate}, Shape: {samples_tensor.shape})")
+
+    print(f"[Fal Helper] Processing audio tensor (Sample Rate: {sample_rate}, Shape: {samples_tensor.shape})")
 
     try:
         # Ensure tensor is on CPU
@@ -1063,7 +1074,7 @@ def _save_audio_tensor_to_temp_wav(audio_data):
 
         # Handle potential batch dimension (use the first item if batched)
         if samples_tensor.dim() == 3: # (batch, channels, samples)
-            print(f"{log_prefix()} Audio tensor has batch dimension, using first item.")
+            print(f"[Fal Helper] Audio tensor has batch dimension, using first item.")
             samples_tensor = samples_tensor[0]
         elif samples_tensor.dim() != 2: # (channels, samples)
              raise ValueError(f"Unexpected audio tensor dimensions: {samples_tensor.shape}. Expected (channels, samples) or (batch, channels, samples).")
@@ -1072,31 +1083,29 @@ def _save_audio_tensor_to_temp_wav(audio_data):
         samples_np = samples_tensor.numpy().T # Transpose here
 
         # Convert float tensor (typically -1.0 to 1.0) to int16 for standard WAV
-        # Check range before scaling to avoid clipping valid int16 audio
         if np.issubdtype(samples_np.dtype, np.floating):
-             print(f"{log_prefix()} Converting float audio to int16 for WAV export.")
+             print(f"[Fal Helper] Converting float audio to int16 for WAV export.")
              samples_np = np.clip(samples_np, -1.0, 1.0) # Ensure range
              samples_np = (samples_np * 32767).astype(np.int16)
         elif not np.issubdtype(samples_np.dtype, np.integer):
-             print(f"WARN: {log_prefix()} Audio tensor is not float or integer type ({samples_np.dtype}). WAV export might be incorrect.")
-             # Attempt conversion anyway, but it might fail or be wrong
+             print(f"WARN: [Fal Helper] Audio tensor is not float or integer type ({samples_np.dtype}). WAV export might be incorrect.")
              samples_np = samples_np.astype(np.int16)
 
 
         # Generate temporary file path
         output_dir = folder_paths.get_temp_directory()
         os.makedirs(output_dir, exist_ok=True)
-        filename = f"fal_omni_temp_audio_{uuid.uuid4().hex}.wav"
+        filename = f"fal_omni_temp_audio_{uuid.uuid4().hex}.wav" # Keep using omni in name, or change if desired
         temp_audio_filepath = os.path.join(output_dir, filename)
 
         # Write the WAV file
-        print(f"{log_prefix()} Saving temporary WAV file: {temp_audio_filepath}")
+        print(f"[Fal Helper] Saving temporary WAV file: {temp_audio_filepath}")
         scipy.io.wavfile.write(temp_audio_filepath, sample_rate, samples_np)
 
         return temp_audio_filepath
 
     except Exception as e:
-        print(f"ERROR: {log_prefix()} Failed to save audio tensor to temporary WAV: {e}")
+        print(f"ERROR: [Fal Helper] Failed to save audio tensor to temporary WAV: {e}")
         traceback.print_exc()
         return None
 
