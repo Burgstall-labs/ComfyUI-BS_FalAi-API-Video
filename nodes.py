@@ -769,10 +769,25 @@ class FalAPIVideoGeneratorI2V:
 
         # --- Exception Handling with Poller ---
         except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
-            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None,)
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); # ... (attempt cancel) ...
-            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
@@ -930,10 +945,25 @@ class FalAPIVideoGeneratorT2V:
 
         # --- Exception Handling with Poller (Same as I2V) ---
         except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
-            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None,)
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); # ... (attempt cancel) ...
-            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
@@ -1120,11 +1150,26 @@ class FalAPIOmniProNode:
                  return (None,)
 
         # --- Exception Handling with Poller (Same pattern as other nodes) ---
-        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); #... cancel ...
-            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None,)
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); #... cancel ...
-            if request_id: try: fal_client.cancel(endpoint_id, request_id); except Exception: pass
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None,)
@@ -1296,12 +1341,27 @@ class FalAILipSyncNode:
             return (frames_tensor, input_audio, temp_download_filepath)
 
         # --- Exception Handling with Poller ---
-        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... cancel ...
-            if request_id: try: fal_client.cancel(endpoint_to_call, request_id); except Exception: pass
-            return (None, None, None) # Correct return
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}"); # ... cancel ...
-            if request_id: try: fal_client.cancel(endpoint_to_call, request_id); except Exception: pass
-            return (None, None, None) # Correct return
+        except KeyboardInterrupt: print(f"ERROR: {log_prefix()} Execution interrupted."); # ... (attempt cancel) ...
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
+            return (None,)
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                # --- Corrected Indent and Structure ---
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
+            return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None, None, None) # Correct return
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network request failed: {e}"); traceback.print_exc(); return (None, None, None)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None, None, None)
