@@ -1,4 +1,4 @@
-# Full nodes.py content with corrected indentation and polling logic
+# Full nodes.py content with corrected polling, cancellation, indentation, and error handling
 
 import os
 import io
@@ -20,7 +20,6 @@ import cv2 # Requires opencv-python: pip install opencv-python
 import folder_paths
 
 # --- Configuration Data with Categories ---
-# (MODEL_CONFIGS dictionary remains the same)
 MODEL_CONFIGS = {
     "image_to_video": {
         "MiniMax (Hailuo AI) Video 01 Image to Video": {
@@ -231,8 +230,13 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
             # Attempt cancellation before raising timeout
             print(f"[Fal Poller] Attempting to cancel timed out job {request_id}...")
             try:
+                # Use fal_client.cancel if available and correct
+                # Assuming fal_client has a cancel method like this:
                 fal_client.cancel(endpoint_id, request_id)
                 print(f"[Fal Poller] Cancel request sent for timed out job {request_id}.")
+            except AttributeError:
+                 print(f"WARN: [Fal Poller] fal_client.cancel not found. Cannot programmatically cancel job {request_id}.")
+                 # If direct cancel isn't possible, maybe just raise timeout
             except Exception as cancel_e:
                 print(f"WARN: [Fal Poller] Failed to send cancel request after timeout: {cancel_e}")
             raise TimeoutError(f"Fal.ai job {request_id} timed out after {timeout}s")
@@ -273,20 +277,19 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
         except KeyboardInterrupt: # Catch during API call itself
             print(f"\nWARN: [Fal Poller] KeyboardInterrupt caught during status check for job {request_id}. Attempting cancellation...")
             raise KeyboardInterrupt # Re-raise
+        except requests.exceptions.RequestException as e:
+             # Log network errors during status check but continue polling
+             print(f"WARN: [Fal Poller] Network error checking status for job {request_id}: {e}. Retrying...")
+             try:
+                 time.sleep(polling_interval * 2) # Longer sleep after network error
+             except KeyboardInterrupt:
+                 print(f"\nWARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
+                 raise KeyboardInterrupt
         except Exception as e:
-            # Handle potential network errors during status check, but keep polling unless it's fatal
-            if isinstance(e, requests.exceptions.RequestException):
-                print(f"WARN: [Fal Poller] Network error checking status for job {request_id}: {e}. Retrying...")
-                try:
-                    time.sleep(polling_interval * 2) # Longer sleep after network error
-                except KeyboardInterrupt:
-                    print(f"\nWARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
-                    raise KeyboardInterrupt
-            else:
-                # For other unexpected errors during status check, raise them
-                print(f"ERROR: [Fal Poller] Unexpected error polling job {request_id}: {e}")
-                traceback.print_exc()
-                raise e
+            # For other unexpected errors during status check, raise them
+            print(f"ERROR: [Fal Poller] Unexpected error polling job {request_id}: {e}")
+            traceback.print_exc()
+            raise e
 
 # --- Helper Function to Parse Schema String ---
 def parse_schema(schema_str):
@@ -312,8 +315,8 @@ for category, models in MODEL_CONFIGS.items():
 # --- Dynamically Create Dropdown Lists ---
 ALL_MODEL_NAMES_I2V = sorted(list(MODEL_CONFIGS["image_to_video"].keys()))
 ALL_MODEL_NAMES_T2V = sorted(list(MODEL_CONFIGS["text_to_video"].keys()))
-ALL_RESOLUTIONS = sorted(list(set(res for cat in MODEL_CONFIGS.values() for cfg in cat.values() for res in cfg['resolutions'] if res))) # Ensure no empty strings
-ALL_ASPECT_RATIOS = sorted(list(set(ar for cat in MODEL_CONFIGS.values() for cfg in cat.values() for ar in cfg['aspect_ratios'] if ar))) # Ensure no empty strings
+ALL_RESOLUTIONS = sorted(list(set(res for cat in MODEL_CONFIGS.values() for cfg in cat.values() for res in cfg['resolutions'] if res)))
+ALL_ASPECT_RATIOS = sorted(list(set(ar for cat in MODEL_CONFIGS.values() for cfg in cat.values() for ar in cfg['aspect_ratios'] if ar)))
 if not ALL_RESOLUTIONS: ALL_RESOLUTIONS = ["720p", "1080p", "512p", "576p"]
 if not ALL_ASPECT_RATIOS: ALL_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"]
 if "auto" not in ALL_ASPECT_RATIOS: ALL_ASPECT_RATIOS.insert(0, "auto")
@@ -322,13 +325,12 @@ ALL_RESOLUTIONS.insert(0, "auto")
 
 # --- Helper Functions with Corrected Logging ---
 def _prepare_image_bytes(image_tensor):
-    """Converts ComfyUI Image Tensor to PNG bytes."""
     if image_tensor is None: print("[Fal Helper] No image tensor provided."); return None, None
     print("[Fal Helper] Preparing image tensor...")
     try:
         if image_tensor.dim() == 4 and image_tensor.shape[0] == 1: img_tensor = image_tensor.squeeze(0)
         elif image_tensor.dim() == 3: img_tensor = image_tensor
-        else: raise ValueError(f"Unexpected image tensor shape: {image_tensor.shape}")
+        else: raise ValueError(f"Unexpected shape: {image_tensor.shape}")
         img_tensor = img_tensor.cpu(); img_np = img_tensor.numpy()
         if img_np.max() <= 1.0 and img_np.min() >= 0.0: img_np = (img_np * 255)
         img_np = img_np.astype(np.uint8); pil_image = Image.fromarray(img_np, 'RGB')
@@ -338,17 +340,19 @@ def _prepare_image_bytes(image_tensor):
     except Exception as e: print(f"ERROR: [Fal Helper] Image tensor processing failed: {e}"); traceback.print_exc(); return None, None
 
 def _save_tensor_to_temp_video(image_tensor_batch, fps=30):
-    """Saves a ComfyUI Image Tensor Batch (B, H, W, C) to a temporary MP4 file."""
     if image_tensor_batch is None or image_tensor_batch.dim() != 4 or image_tensor_batch.shape[0] == 0: print("[Fal Helper] Invalid video tensor batch."); return None
     print("[Fal Helper] Saving video tensor batch to temp file...")
-    batch_size, height, width, channels = image_tensor_batch.shape
-    if channels != 3: print(f"ERROR: [Fal Helper] Expected 3 channels, got {channels}."); return None
-    output_dir = folder_paths.get_temp_directory(); os.makedirs(output_dir, exist_ok=True)
-    filename = f"fal_temp_upload_vid_{uuid.uuid4().hex}.mp4"
-    temp_video_filepath = os.path.join(output_dir, filename)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v'); video_writer = cv2.VideoWriter(temp_video_filepath, fourcc, float(fps), (width, height))
-    if not video_writer.isOpened(): print(f"ERROR: [Fal Helper] Failed to open video writer: {temp_video_filepath}"); return None
+    temp_video_filepath = None # Ensure defined in outer scope
+    video_writer = None # Ensure defined in outer scope
     try:
+        batch_size, height, width, channels = image_tensor_batch.shape
+        if channels != 3: print(f"ERROR: [Fal Helper] Expected 3 channels, got {channels}."); return None
+        output_dir = folder_paths.get_temp_directory(); os.makedirs(output_dir, exist_ok=True)
+        filename = f"fal_temp_upload_vid_{uuid.uuid4().hex}.mp4"
+        temp_video_filepath = os.path.join(output_dir, filename)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v'); video_writer = cv2.VideoWriter(temp_video_filepath, fourcc, float(fps), (width, height))
+        if not video_writer.isOpened(): print(f"ERROR: [Fal Helper] Failed to open video writer: {temp_video_filepath}"); return None
+
         image_tensor_batch_cpu = image_tensor_batch.cpu()
         for i in range(batch_size):
             frame_tensor = image_tensor_batch_cpu[i]; frame_np = frame_tensor.numpy()
@@ -356,18 +360,19 @@ def _save_tensor_to_temp_video(image_tensor_batch, fps=30):
             frame_np = frame_np.astype(np.uint8); frame_bgr = cv2.cvtColor(frame_np, cv2.COLOR_RGB2BGR)
             video_writer.write(frame_bgr)
         print(f"[Fal Helper] Temp video saved: {temp_video_filepath}")
-        return temp_video_filepath
-    except Exception as e: print(f"ERROR: [Fal Helper] Video writing failed: {e}"); traceback.print_exc()
-    finally:
-        if video_writer.isOpened(): video_writer.release()
-        # Cleanup partial file only if error occurred during writing
-        if 'e' in locals() and os.path.exists(temp_video_filepath): # Check if exception 'e' exists
+        return temp_video_filepath # Return path on success
+    except Exception as e:
+        print(f"ERROR: [Fal Helper] Video writing failed: {e}"); traceback.print_exc()
+        # Cleanup partial file if error occurred AND path was defined
+        if temp_video_filepath and os.path.exists(temp_video_filepath):
              try: os.remove(temp_video_filepath); print(f"[Fal Helper] Cleaned partial temp video: {temp_video_filepath}")
              except Exception as clean_e: print(f"WARN: [Fal Helper] Cleanup failed on video write error: {clean_e}")
-    return None # Return None if exception occurred
+        return None # Return None if exception occurred
+    finally:
+        if video_writer and video_writer.isOpened(): video_writer.release()
+
 
 def _upload_media_to_fal(media_bytes, filename_hint, content_type):
-    """Saves media bytes to temp file, uploads via fal_client.upload_file."""
     if not media_bytes: print(f"ERROR: [Fal Helper] No media bytes for upload ({filename_hint})."); return None
     temp_path = None
     try:
@@ -392,7 +397,6 @@ def _upload_media_to_fal(media_bytes, filename_hint, content_type):
             except Exception as cleanup_e: print(f"WARN: [Fal Helper] Temp upload cleanup failed: {cleanup_e}")
 
 def _save_audio_tensor_to_temp_wav(audio_data):
-    """Saves ComfyUI AUDIO dict to temp WAV."""
     # print(f"[Fal Helper] _save_audio... received keys: {audio_data.keys() if isinstance(audio_data, dict) else 'Not dict'}") # Debug
     if not isinstance(audio_data, dict) or 'sample_rate' not in audio_data or \
        ('samples' not in audio_data and 'waveform' not in audio_data):
@@ -431,7 +435,6 @@ class FalAPIVideoGeneratorI2V:
     FUNCTION = "generate_video"
     CATEGORY = "BS_FalAi-API-Video/Image-to-Video"
 
-    # Specific Base64 image prep for this node type
     def _prepare_image(self, image_tensor, target_width=None, target_height=None):
         if image_tensor is None: print("FalAPIVideoGeneratorI2V: No image provided."); return None
         print("FalAPIVideoGeneratorI2V: Preparing image (Base64 method)...")
@@ -481,9 +484,9 @@ class FalAPIVideoGeneratorI2V:
             if api_name in expected_params:
                 if isinstance(value, str) and value.lower() == "auto": continue
                 if isinstance(value, (int, float)) and value == 0 and input_name in ["num_frames", "seed"] and not (input_name == "seed" and 0 in expected_params): continue
-                try: # Add specific type conversions here if needed based on future schema inspection
+                try:
                     if api_name == "duration" and "duration:Integer" in config.get('schema_str', ''): payload[api_name] = int(value)
-                    elif api_name == "steps" and "steps:Integer" in config.get('schema_str', ''): payload[api_name] = int(value) # Assuming steps maps to num_inference_steps of type Integer
+                    elif api_name == "steps" and "steps:Integer" in config.get('schema_str', ''): payload[api_name] = int(value)
                     else: payload[api_name] = value
                 except (ValueError, TypeError) as te: print(f"WARN: {log_prefix()} Type conversion failed for {api_name}={value}: {te}")
 
@@ -524,9 +527,11 @@ class FalAPIVideoGeneratorI2V:
             if not cap.isOpened(): raise IOError(f"Cannot open video: {temp_video_filepath}")
             while True:
                 ret, frame = cap.read()
-                if not ret: break
-                frames_list.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-            cap.release()
+                if not ret: break # Exit loop if no frame
+                # Process frame only if read successfully
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames_list.append(frame_rgb)
+            cap.release() # Moved release after loop
             if not frames_list: raise ValueError(f"No frames extracted: {temp_video_filepath}")
             print(f"{log_prefix()} Extracted {len(frames_list)} frames.")
             frames_np = np.stack(frames_list, axis=0); frames_tensor = torch.from_numpy(frames_np).float() / 255.0
@@ -535,7 +540,6 @@ class FalAPIVideoGeneratorI2V:
             print(f"{log_prefix()} Completed. Tensor shape: {frames_tensor.shape}")
             return (frames_tensor,)
 
-      
         except KeyboardInterrupt:
             print(f"ERROR: {log_prefix()} Execution interrupted by user.")
             if request_id:
@@ -545,8 +549,7 @@ class FalAPIVideoGeneratorI2V:
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,) # Use (None,) for I2V/T2V/Omni
-        
+            return (None,)
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}")
             if request_id:
@@ -556,9 +559,7 @@ class FalAPIVideoGeneratorI2V:
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,) # Use (None,) for I2V/T2V/Omni
-        
-            
+            return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -574,7 +575,6 @@ class FalAPIVideoGeneratorI2V:
 class FalAPIVideoGeneratorT2V:
     @classmethod
     def INPUT_TYPES(cls):
-        # Keep original INPUT_TYPES definition
          return {
             "required": { "model_name": (ALL_MODEL_NAMES_T2V,), "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}), "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}), "prompt": ("STRING", {"multiline": True, "default": "A wild Burgstall appears"}), },
             "optional": { "negative_prompt": ("STRING", {"multiline": True, "default": "Blurry, low quality, text, watermark"}), "resolution_enum": (ALL_RESOLUTIONS, {"default": "auto"}), "aspect_ratio_enum": (ALL_ASPECT_RATIOS, {"default": "auto"}), "duration_seconds": ("FLOAT", {"default": 5.0, "min": 1.0, "max": 30.0, "step": 0.5}), "guidance_scale": ("FLOAT", {"default": 7.5, "min": 0.0, "max": 20.0, "step": 0.1}), "steps": ("INT", {"default": 25, "min": 1, "max": 100, "step": 1}), "num_frames": ("INT", {"default": 0, "min": 0, "max": 1000}), "style": (["auto", "cinematic", "anime", "photorealistic", "fantasy", "cartoon"], {"default": "auto"}), "prompt_optimizer": ("BOOLEAN", {"default": False}), "cleanup_temp_video": ("BOOLEAN", {"default": True}), }
@@ -639,10 +639,10 @@ class FalAPIVideoGeneratorT2V:
             content_type = video_response.headers.get('content-type', '').lower()
             extension = '.mp4';
             if 'webm' in content_type or video_url.lower().endswith('.webm'): extension = '.webm'
-            filename = f"fal_api_t2v_temp_{uuid.uuid4().hex}{extension}"
+            filename = f"fal_api_t2v_temp_{uuid.uuid4().hex}{extension}" # Use T2V prefix
             temp_video_filepath = os.path.join(output_dir, filename)
             with open(temp_video_filepath, 'wb') as f:
-                for chunk in video_response.iter_content(chunk_size=1024*1024): f.write(chunk)
+                 for chunk in video_response.iter_content(chunk_size=1024*1024): f.write(chunk)
             print(f"{log_prefix()} Video downloaded: {temp_video_filepath}")
 
             print(f"{log_prefix()} Extracting frames...")
@@ -661,7 +661,6 @@ class FalAPIVideoGeneratorT2V:
             print(f"{log_prefix()} Completed. Tensor shape: {frames_tensor.shape}")
             return (frames_tensor,)
 
-      
         except KeyboardInterrupt:
             print(f"ERROR: {log_prefix()} Execution interrupted by user.")
             if request_id:
@@ -671,8 +670,7 @@ class FalAPIVideoGeneratorT2V:
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,) # Use (None,) for I2V/T2V/Omni
-        
+            return (None,)
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}")
             if request_id:
@@ -682,35 +680,29 @@ class FalAPIVideoGeneratorT2V:
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,) # Use (None,) for I2V/T2V/Omni
-        
-            
+            return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
         except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
         finally:
-            if cleanup_temp_video and temp_video_filepath and os.path.exists(temp_video_filepath):
-                try: print(f"{log_prefix()} Cleaning temp: {temp_video_filepath}"); os.remove(temp_video_filepath)
-                except Exception as e: print(f"WARN: {log_prefix()} Temp cleanup failed: {e}")
-            elif temp_video_filepath and os.path.exists(temp_video_filepath): print(f"{log_prefix()} Keeping temp: {temp_video_filepath}")
+             if cleanup_temp_video and temp_video_filepath and os.path.exists(temp_video_filepath):
+                 try: print(f"{log_prefix()} Cleaning temp: {temp_video_filepath}"); os.remove(temp_video_filepath)
+                 except Exception as e: print(f"WARN: {log_prefix()} Temp cleanup failed: {e}")
+             elif temp_video_filepath and os.path.exists(temp_video_filepath): print(f"{log_prefix()} Keeping temp: {temp_video_filepath}")
 
 
 # --- Define the Omni Pro Node Class with Polling ---
 class FalAPIOmniProNode:
-    AUTO_KEY_START_IMAGE = "image_url"
-    AUTO_KEY_END_IMAGE = "end_image_url"
-    AUTO_KEY_INPUT_VIDEO = "video_url"
-    AUTO_KEY_INPUT_AUDIO = "audio_url"
-
+    AUTO_KEY_START_IMAGE = "image_url"; AUTO_KEY_END_IMAGE = "end_image_url"
+    AUTO_KEY_INPUT_VIDEO = "video_url"; AUTO_KEY_INPUT_AUDIO = "audio_url"
     @classmethod
     def INPUT_TYPES(cls):
-        # Keep original INPUT_TYPES definition
         return {
             "required": { "endpoint_id": ("STRING", {"multiline": False, "default": "fal-ai/some-model/endpoint-id"}), "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}), "parameters_json": ("STRING", {"multiline": True, "default": json.dumps({"prompt": "A description", "seed": 12345}, indent=2)}), },
             "optional": { "start_image": ("IMAGE",), "end_image": ("IMAGE",), "input_video": ("IMAGE",), "input_audio": ("AUDIO",), "cleanup_temp_files": ("BOOLEAN", {"default": True}), "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}), }
         }
-    RETURN_TYPES = ("IMAGE",) # Only returns image batch
+    RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image_batch",)
     FUNCTION = "execute_omni_request"
     CATEGORY = "BS_FalAi-API-Omni"
@@ -741,27 +733,35 @@ class FalAPIOmniProNode:
         try:
             if start_image is not None:
                 img_bytes, ct = _prepare_image_bytes(start_image)
-                if img_bytes: url = _upload_media_to_fal(img_bytes, "start_img.png", ct); uploaded_media_urls[self.AUTO_KEY_START_IMAGE] = url;
-                if not img_bytes or not url: upload_error = True; print(f"ERROR: {log_prefix()} Start image prep/upload failed.")
+                url = None
+                if img_bytes: url = _upload_media_to_fal(img_bytes, "start_img.png", ct);
+                if url: uploaded_media_urls[self.AUTO_KEY_START_IMAGE] = url
+                else: upload_error = True; print(f"ERROR: {log_prefix()} Start image prep/upload failed.")
             if end_image is not None and not upload_error:
                 img_bytes, ct = _prepare_image_bytes(end_image)
-                if img_bytes: url = _upload_media_to_fal(img_bytes, "end_img.png", ct); uploaded_media_urls[self.AUTO_KEY_END_IMAGE] = url;
-                if not img_bytes or not url: upload_error = True; print(f"ERROR: {log_prefix()} End image prep/upload failed.")
+                url = None
+                if img_bytes: url = _upload_media_to_fal(img_bytes, "end_img.png", ct);
+                if url: uploaded_media_urls[self.AUTO_KEY_END_IMAGE] = url
+                else: upload_error = True; print(f"ERROR: {log_prefix()} End image prep/upload failed.")
             if input_video is not None and not upload_error:
                 temp_vid_path = _save_tensor_to_temp_video(input_video, fps=output_video_fps)
+                url = None
                 if temp_vid_path:
                     temp_files_to_clean.append(temp_vid_path)
                     with open(temp_vid_path, 'rb') as vf: video_bytes = vf.read()
-                    if video_bytes: url = _upload_media_to_fal(video_bytes, os.path.basename(temp_vid_path), "video/mp4"); uploaded_media_urls[self.AUTO_KEY_INPUT_VIDEO] = url
-                    if not video_bytes or not url: upload_error = True; print(f"ERROR: {log_prefix()} Input video read/upload failed.")
+                    if video_bytes: url = _upload_media_to_fal(video_bytes, os.path.basename(temp_vid_path), "video/mp4")
+                    if url: uploaded_media_urls[self.AUTO_KEY_INPUT_VIDEO] = url
+                    else: upload_error = True; print(f"ERROR: {log_prefix()} Input video upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving input video failed.")
             if input_audio is not None and not upload_error:
                 temp_aud_path = _save_audio_tensor_to_temp_wav(input_audio)
+                url = None
                 if temp_aud_path:
                     temp_files_to_clean.append(temp_aud_path)
                     with open(temp_aud_path, 'rb') as af: audio_bytes = af.read()
-                    if audio_bytes: url = _upload_media_to_fal(audio_bytes, os.path.basename(temp_aud_path), "audio/wav"); uploaded_media_urls[self.AUTO_KEY_INPUT_AUDIO] = url
-                    if not audio_bytes or not url: upload_error = True; print(f"ERROR: {log_prefix()} Input audio read/upload failed.")
+                    if audio_bytes: url = _upload_media_to_fal(audio_bytes, os.path.basename(temp_aud_path), "audio/wav")
+                    if url: uploaded_media_urls[self.AUTO_KEY_INPUT_AUDIO] = url
+                    else: upload_error = True; print(f"ERROR: {log_prefix()} Input audio upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving input audio failed.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (cleanup upload temps) ...
@@ -802,9 +802,9 @@ class FalAPIOmniProNode:
                 if not result_url and response.get(url_key) and isinstance(response[url_key], str): result_url = response[url_key]; result_content_type = response.get('content_type')
                 if result_url and not is_video and not is_image: # Guess type if needed
                     if result_content_type:
-                        if 'video' in result_content_type: is_video=True
-                        elif 'image' in result_content_type: is_image=True
-                    if not is_video and not is_image:
+                        if 'video' in result_content_type.lower(): is_video=True
+                        elif 'image' in result_content_type.lower(): is_image=True
+                    if not is_video and not is_image: # Fallback guess by extension
                         if any(ext in result_url.lower() for ext in ['.mp4','.webm']): is_video=True
                         elif any(ext in result_url.lower() for ext in ['.png','.jpg','.jpeg','.webp']): is_image=True
             if not result_url: print(f"WARN: {log_prefix()} No media URL found in result."); return (None,)
@@ -843,7 +843,6 @@ class FalAPIOmniProNode:
                 return (img_tensor,)
             else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None,)
 
-      
         except KeyboardInterrupt:
             print(f"ERROR: {log_prefix()} Execution interrupted by user.")
             if request_id:
@@ -853,8 +852,7 @@ class FalAPIOmniProNode:
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,) # Use (None,) for I2V/T2V/Omni
-        
+            return (None,)
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}")
             if request_id:
@@ -864,9 +862,7 @@ class FalAPIOmniProNode:
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,) # Use (None,) for I2V/T2V/Omni
-
-    
+            return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -878,7 +874,7 @@ class FalAPIOmniProNode:
                 for temp_file in all_temp_files:
                     if temp_file and os.path.exists(temp_file):
                         try: print(f"{log_prefix()} Removing: {temp_file}"); os.remove(temp_file)
-                        except Exception as e: print(f"WARN: {log_prefix()} Cleanup failed: {e}")
+                        except Exception as e: print(f"WARN: {log_prefix()} Cleanup failed for {temp_file}: {e}")
             else:
                 all_temp_files = temp_files_to_clean + ([temp_download_filepath] if temp_download_filepath else [])
                 if all_temp_files: print(f"{log_prefix()} Skipping cleanup for temp files: {all_temp_files}")
@@ -928,24 +924,28 @@ class FalAILipSyncNode:
         try:
             print(f"{log_prefix()} Processing input_video...")
             temp_video_path = _save_tensor_to_temp_video(input_video, fps=output_video_fps)
+            url_vid = None
             if temp_video_path and os.path.exists(temp_video_path):
                 temp_files_to_clean.append(temp_video_path)
                 with open(temp_video_path, 'rb') as vf: video_bytes = vf.read()
-                if video_bytes: url = _upload_media_to_fal(video_bytes, "input_video.mp4", "video/mp4"); uploaded_media_urls[self.PAYLOAD_KEY_VIDEO] = url
-                if not video_bytes or not url: upload_error = True; print(f"ERROR: {log_prefix()} Video read/upload failed.")
+                if video_bytes: url_vid = _upload_media_to_fal(video_bytes, "input_video.mp4", "video/mp4")
+                if url_vid: uploaded_media_urls[self.PAYLOAD_KEY_VIDEO] = url_vid
+                else: upload_error = True; print(f"ERROR: {log_prefix()} Video read/upload failed.")
             else: upload_error = True; print(f"ERROR: {log_prefix()} Saving video tensor failed.")
 
             if not upload_error:
                 print(f"{log_prefix()} Processing input_audio...")
                 temp_audio_path = _save_audio_tensor_to_temp_wav(input_audio)
+                url_aud = None
                 if temp_audio_path and os.path.exists(temp_audio_path):
                     temp_files_to_clean.append(temp_audio_path)
                     with open(temp_audio_path, 'rb') as af: audio_bytes = af.read()
-                    if audio_bytes: url = _upload_media_to_fal(audio_bytes, "input_audio.wav", "audio/wav"); uploaded_media_urls[self.PAYLOAD_KEY_AUDIO] = url
-                    if not audio_bytes or not url: upload_error = True; print(f"ERROR: {log_prefix()} Audio read/upload failed.")
+                    if audio_bytes: url_aud = _upload_media_to_fal(audio_bytes, "input_audio.wav", "audio/wav")
+                    if url_aud: uploaded_media_urls[self.PAYLOAD_KEY_AUDIO] = url_aud
+                    else: upload_error = True; print(f"ERROR: {log_prefix()} Audio read/upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving audio tensor failed.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
-        if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (early cleanup) ...
+        if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors.");
             if cleanup_temp_files:
                 for tf in temp_files_to_clean:
                      if tf and os.path.exists(tf): try: os.remove(tf); except Exception: pass
@@ -1001,18 +1001,24 @@ class FalAILipSyncNode:
             return (frames_tensor, input_audio, temp_download_filepath) # Success
 
         except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted.")
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
             if request_id:
-                print(f"{log_prefix()} Attempting cancel job {request_id}...")
-                try: fal_client.cancel(endpoint_to_call, request_id) # Use endpoint_to_call here
-                except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_to_call, request_id) # Use endpoint_to_call here
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None, None, None) # Correct return for LipSync
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}")
             if request_id:
-                print(f"{log_prefix()} Attempting cancel job {request_id}...")
-                try: fal_client.cancel(endpoint_to_call, request_id) # Use endpoint_to_call here
-                except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_to_call, request_id) # Use endpoint_to_call here
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None, None, None) # Correct return for LipSync
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None, None, None) # Correct return
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None, None, None)
@@ -1021,7 +1027,7 @@ class FalAILipSyncNode:
         finally:
             if cleanup_temp_files:
                 print(f"{log_prefix()} Cleaning temporary files...")
-                all_temp_files = temp_files_to_clean # temp_download_filepath is already in here if created
+                all_temp_files = temp_files_to_clean # temp_download_filepath included earlier
                 for temp_file in all_temp_files:
                     if temp_file and os.path.exists(temp_file):
                         try: print(f"{log_prefix()} Removing: {temp_file}"); os.remove(temp_file)
