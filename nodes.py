@@ -535,13 +535,30 @@ class FalAPIVideoGeneratorI2V:
             print(f"{log_prefix()} Completed. Tensor shape: {frames_tensor.shape}")
             return (frames_tensor,)
 
+      
         except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted.")
-            if request_id: print(f"{log_prefix()} Attempting cancel job {request_id}..."); try: fal_client.cancel(endpoint_id, request_id) except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
-            return (None,)
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}");
-            if request_id: print(f"{log_prefix()} Attempting cancel job {request_id}..."); try: fal_client.cancel(endpoint_id, request_id) except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
-            return (None,)
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
+            if request_id:
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
+            return (None,) # Use (None,) for I2V/T2V/Omni
+        
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
+            return (None,) # Use (None,) for I2V/T2V/Omni
+        
+            
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -644,13 +661,30 @@ class FalAPIVideoGeneratorT2V:
             print(f"{log_prefix()} Completed. Tensor shape: {frames_tensor.shape}")
             return (frames_tensor,)
 
+      
         except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted.")
-            if request_id: print(f"{log_prefix()} Attempting cancel job {request_id}..."); try: fal_client.cancel(endpoint_id, request_id) except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
-            return (None,)
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}");
-            if request_id: print(f"{log_prefix()} Attempting cancel job {request_id}..."); try: fal_client.cancel(endpoint_id, request_id) except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
-            return (None,)
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
+            if request_id:
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
+            return (None,) # Use (None,) for I2V/T2V/Omni
+        
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
+            return (None,) # Use (None,) for I2V/T2V/Omni
+        
+            
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
@@ -809,13 +843,30 @@ class FalAPIOmniProNode:
                 return (img_tensor,)
             else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None,)
 
+      
         except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted.")
-            if request_id: print(f"{log_prefix()} Attempting cancel job {request_id}..."); try: fal_client.cancel(endpoint_id, request_id) except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
-            return (None,)
-        except TimeoutError as e: print(f"ERROR: {log_prefix()} Job timed out: {e}");
-            if request_id: print(f"{log_prefix()} Attempting cancel job {request_id}..."); try: fal_client.cancel(endpoint_id, request_id) except Exception as ce: print(f"WARN: {log_prefix()} Cancel failed: {ce}")
-            return (None,)
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
+            if request_id:
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
+            return (None,) # Use (None,) for I2V/T2V/Omni
+        
+        except TimeoutError as e:
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            if request_id:
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                try:
+                    fal_client.cancel(endpoint_id, request_id)
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
+                except Exception as cancel_e:
+                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
+            return (None,) # Use (None,) for I2V/T2V/Omni
+
+    
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
