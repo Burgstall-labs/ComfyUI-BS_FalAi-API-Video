@@ -83,8 +83,7 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
                 try:
                     time.sleep(polling_interval)
                 except KeyboardInterrupt:
-                    print(f"
-WARN: [Fal Poller] KeyboardInterrupt caught during sleep for job {request_id}. Attempting cancellation...")
+                    print(f"WARN: [Fal Poller] KeyboardInterrupt caught during sleep for job {request_id}. Attempting cancellation...")
                     raise KeyboardInterrupt # Re-raise
 
             else: # Unknown status
@@ -92,13 +91,11 @@ WARN: [Fal Poller] KeyboardInterrupt caught during sleep for job {request_id}. A
                 try:
                     time.sleep(polling_interval)
                 except KeyboardInterrupt:
-                     print(f"
-WARN: [Fal Poller] KeyboardInterrupt during sleep (unknown status) for job {request_id}. Attempting cancellation...")
+                     print(f"WARN: [Fal Poller] KeyboardInterrupt during sleep (unknown status) for job {request_id}. Attempting cancellation...")
                      raise KeyboardInterrupt # Re-raise
 
         except KeyboardInterrupt: # Catch during API call itself
-            print(f"
-WARN: [Fal Poller] KeyboardInterrupt caught during status check for job {request_id}. Attempting cancellation...")
+            print(f"WARN: [Fal Poller] KeyboardInterrupt caught during status check for job {request_id}. Attempting cancellation...")
             raise KeyboardInterrupt # Re-raise
         except requests.exceptions.RequestException as e:
              # Log network errors during status check but continue polling
@@ -106,8 +103,7 @@ WARN: [Fal Poller] KeyboardInterrupt caught during status check for job {request
              try:
                  time.sleep(polling_interval * 2) # Longer sleep after network error
              except KeyboardInterrupt:
-                 print(f"
-WARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
+                 print(f"WARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
                  raise KeyboardInterrupt
         except Exception as e:
             # For other unexpected errors during status check, raise them
