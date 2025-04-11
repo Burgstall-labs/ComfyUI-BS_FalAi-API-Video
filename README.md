@@ -2,6 +2,23 @@
 
 This repository contains custom nodes for ComfyUI that allow you to interact with the [fal.ai](https://fal.ai/) API, enabling the use of various AI models directly within your ComfyUI workflows. It includes nodes for specific tasks like video generation and lipsyncing, as well as a flexible "Omni" node for interacting with potentially any fal.ai endpoint.
 
+## Project Structure
+
+The project has been refactored to improve organization. The main components are now distributed across multiple files:
+
+-   `ComfyUI-BS_FalAi-API-Video/`: Main directory
+    -   `utils/`: Contains utility modules.
+        -   `config.py`: Model configurations.
+        -   `helper.py`: Helper functions.
+-   `nodes/`: Contains the node implementations.
+    -   `node_i2v.py`: Image-to-Video node.
+    -   `node_t2v.py`: Text-to-Video node.
+    -   `node_omni.py`: Omni Pro node.
+    -   `node_lipsync.py`: LipSync node.
+    -   `__init__.py`: Marks the nodes directory as a package.
+    -   `main.py`: Contains the `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS`.
+    -   `__init__.py`: Exports the `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS`
+
 ## Nodes Included
 
 1.  **FAL AI Text-to-Video (`FalAPIVideoGeneratorT2V`)**:
