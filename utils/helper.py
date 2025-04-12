@@ -81,12 +81,9 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
             elif isinstance(status, str) and status.startswith("InProgress("):
                 status = "IN_PROGRESS"
             # Handle Completed(logs=None, metrics={'inference_time': ...}) status            
-            elif isinstance(status, str) and status.startswith("Completed("):
+            elif isinstance(status, str) and status.startswith("Completed(") :
                 status = "COMPLETED"
-                except ValueError:
-                    print(f"WARN: [Fal Poller] Could not parse queue position from status: {status}")
-                    status = "QUEUED"  # Normalize status
-                except ValueError:
+            else :
                     print(f"WARN: [Fal Poller] Could not parse queue position from status: {status}")
 
 
