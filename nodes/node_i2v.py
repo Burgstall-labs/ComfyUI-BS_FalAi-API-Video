@@ -1,3 +1,4 @@
+from PIL import Image
 import torch
 import os
 import io
