@@ -1,3 +1,5 @@
+from PIL import Image
+import fal_client
 import torch
 import os
 import io
@@ -13,6 +15,7 @@ import scipy.io.wavfile
 import cv2 # Requires opencv-python: pip install opencv-python
 
 # Helper to access ComfyUI's path functions
+
 import folder_paths
 from ..utils.config import MODEL_CONFIGS, ALL_MODEL_NAMES_T2V, ALL_RESOLUTIONS, ALL_ASPECT_RATIOS
 from ..utils.helper import _prepare_image_bytes, _save_tensor_to_temp_video, _upload_media_to_fal, _save_audio_tensor_to_temp_wav, _poll_fal_job
