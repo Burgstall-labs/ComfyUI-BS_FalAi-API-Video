@@ -63,7 +63,7 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
 
         # --- Status Check ---
         try:
-            status_response = fal_client.status(endpoint_id, request_id, logs=False)  # Use the direct fal.status
+            status_response = fal_client.status(endpoint_id, request_id)  # Use the direct fal.status
             status = status_response.get("status")
             queue_pos = status_response.get("queue_position")
 
@@ -76,7 +76,7 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
 
             elif status in ["ERROR", "FAILED", "CANCELLED"]:
                 error_message = f"Fal.ai job {request_id} failed with status: {status}"
-                print(f"ERROR: [Fal Poller] {error_message}")
+                print(f"ERROR: [Fal Helper] {error_message}")
                 raise RuntimeError(error_message)
             
             elif status in ["IN_QUEUE", "IN_PROGRESS"]:
