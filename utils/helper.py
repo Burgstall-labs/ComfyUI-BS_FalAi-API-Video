@@ -63,7 +63,7 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
 
         # --- Status Check ---
         try:
-            status_response = fal_client.status(endpoint_id, request_id, logs=False)
+            status_response = fal_client.status(endpoint_id, request_id)
             status = status_response.get('status')
             queue_pos = status_response.get('queue_position')
             
