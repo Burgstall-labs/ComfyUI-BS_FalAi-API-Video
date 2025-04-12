@@ -68,12 +68,24 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
                 queue_pos = status_response.get('queue_position')
             else:  # Handle cases where status_response might not be a dictionary
                 status = str(status_response)  # Assuming __str__ method provides status
-                queue_pos = None            
+                queue_pos = None
             
             # Handle Queued(position=...) status
             if isinstance(status, str) and status.startswith("Queued(position="):
                 try:
                     queue_pos = int(status[16:-1])  # Extract position from string
+                    status = "QUEUED"  # Normalize status
+                except ValueError:
+                    print(f"WARN: [Fal Poller] Could not parse queue position from status: {status}")
+                    pass  # Leave status as is if parsing fails
+            # Handle InProgress(logs=None) status
+            elif isinstance(status, str) and status.startswith("InProgress("):
+                status = "IN_PROGRESS"
+            # Handle Completed(logs=None, metrics={'inference_time': ...}) status
+            elif isinstance(status, str) and status.startswith("Completed("):
+                status = "COMPLETED"
+                except ValueError:
+                    print(f"WARN: [Fal Poller] Could not parse queue position from status: {status}")
                     status = "QUEUED"  # Normalize status
                 except ValueError:
                     print(f"WARN: [Fal Poller] Could not parse queue position from status: {status}")
