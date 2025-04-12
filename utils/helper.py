@@ -39,9 +39,9 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
         Exception: For other unexpected errors during polling.
     """
     start_time = time.time()
-    print(f"[Fal Helper] Started polling job {request_id} for endpoint {endpoint_id}...")
-    print(f"[Fal Helper] Timeout set to {timeout}s, Interval {polling_interval}s.")
-
+    print(f"[Fal Poller] Started polling job {request_id} for endpoint {endpoint_id}...")
+    print(f"[Fal Poller] Timeout set to {timeout}s, Interval {polling_interval}s.")
+    
     while True:
         # --- Timeout Check ---
         elapsed_time = time.time() - start_time
@@ -52,10 +52,10 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
             try:
                 # Use fal.cancel if available and correct
                 # Assuming fal_client has a cancel method like this:
-                fal_client.cancel(endpoint_id, request_id)  # Use the direct fal.cancel
-                print(f"[Fal Helper] Cancel request sent for timed out job {request_id}.") # Updated log message
+                fal_client.cancel(endpoint_id, request_id)
+                print(f"[Fal Poller] Cancel request sent for timed out job {request_id}.")
             except AttributeError:
-                 print(f"WARN: [Fal Helper] fal_client.cancel not found. Cannot programmatically cancel job {request_id}.")
+                 print(f"WARN: [Fal Poller] fal_client.cancel not found. Cannot programmatically cancel job {request_id}.")
                  # If direct cancel isn't possible, maybe just raise timeout
             except Exception as cancel_e:
                 print(f"WARN: [Fal Helper] Failed to send cancel request after timeout: {cancel_e}")
@@ -63,15 +63,11 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
 
         # --- Status Check ---
         try:
-            status_response = fal_client.status(endpoint_id, request_id)
-            status = status_response.get('status', 'UNKNOWN')
-            try:
-                queue_pos = status_response.queue_position
-            except (AttributeError, KeyError):
-              queue_pos = None
+            status_response = fal_client.status(endpoint_id, request_id, logs=False)
+            status = status_response.get('status')
+            queue_pos = status_response.get('queue_position')
             
-
-            print(f"[Fal Helper] Job {request_id}: Status={status}, Queue={queue_pos if queue_pos is not None else 'N/A'}, Elapsed={elapsed_time:.1f}s")
+            print(f"[Fal Poller] Job {request_id}: Status={status}, Queue={queue_pos if queue_pos is not None else 'N/A'}, Elapsed={elapsed_time:.1f}s")
 
             if status == "COMPLETED":
                 print(f"[Fal Helper] Job {request_id} completed.") # No change in log message
@@ -87,15 +83,15 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
                 try:
                     time.sleep(polling_interval)
                 except KeyboardInterrupt:
-                    print(f"WARN: [Fal Helper] KeyboardInterrupt caught during sleep for job {request_id}. Attempting cancellation...")
+                    print(f"\nWARN: [Fal Poller] KeyboardInterrupt caught during sleep for job {request_id}. Attempting cancellation...")
                     raise KeyboardInterrupt # Re-raise
 
             else: # Unknown status
-                print(f"WARN: [Fal Helper] Job {request_id} has unknown status: {status}. Continuing poll.")
+                print(f"WARN: [Fal Poller] Job {request_id} has unknown status: {status}. Continuing poll.")
                 try:
                     time.sleep(polling_interval)
                 except KeyboardInterrupt:
-                     print(f"WARN: [Fal Helper] KeyboardInterrupt during sleep (unknown status) for job {request_id}. Attempting cancellation...")
+                     print(f"\nWARN: [Fal Poller] KeyboardInterrupt during sleep (unknown status) for job {request_id}. Attempting cancellation...")
                      raise KeyboardInterrupt # Re-raise
 
         except KeyboardInterrupt: # Catch during API call itself
@@ -103,45 +99,20 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
             raise KeyboardInterrupt # Re-raise
         except requests.exceptions.RequestException as e:
              # Log network errors during status check but continue polling
-             print(f"WARN: [Fal Helper] Network error checking status for job {request_id}: {e}. Retrying...")
+             print(f"WARN: [Fal Poller] Network error checking status for job {request_id}: {e}. Retrying...")
              try:
                  time.sleep(polling_interval * 2) # Longer sleep after network error
              except KeyboardInterrupt:
-                 print(f"WARN: [Fal Helper] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
+                 print(f"\nWARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
                  raise KeyboardInterrupt
         except Exception as e:
             # For other unexpected errors during status check, raise them
-            print(f"ERROR: [Fal Helper] Unexpected error polling job {request_id}: {e}")
+            print(f"ERROR: [Fal Poller] Unexpected error polling job {request_id}: {e}")
             traceback.print_exc()
-            
-            # Handle AttributeError if fal_client.status or fal_client.result not found
-            if isinstance(e, AttributeError):
-              if "status" in str(e) or "result" in str(e):
-                print(f"ERROR: [Fal Helper] fal_client.status or fal_client.result not found. Please ensure that the fal_client package is correctly installed and imported.")
-                raise
-            else:
-                print(f"ERROR: [Fal Helper] Unexpected error polling job {request_id}: {e}")
-                traceback.print_exc()
-                raise
+            raise e
             
 
-
-# --- Helper Functions with Corrected Logging ---
-def _prepare_image_bytes(image_tensor):
-    if image_tensor is None: print("[Fal Helper] No image tensor provided."); return None, None
-    print("[Fal Helper] Preparing image tensor...")
-    try:
-        if image_tensor.dim() == 4 and image_tensor.shape[0] == 1: img_tensor = image_tensor.squeeze(0)
-        elif image_tensor.dim() == 3: img_tensor = image_tensor
-        else: raise ValueError(f"Unexpected shape: {image_tensor.shape}")
-        img_tensor = img_tensor.cpu(); img_np = img_tensor.numpy()
-        if img_np.max() <= 1.0 and img_np.min() >= 0.0: img_np = (img_np * 255)
-        img_np = img_np.astype(np.uint8); pil_image = Image.fromarray(img_np, 'RGB')
-        buffered = io.BytesIO(); pil_image.save(buffered, format="PNG"); img_bytes = buffered.getvalue()
-        print(f"[Fal Helper] Image tensor prep complete ({len(img_bytes)} bytes).")
-        return img_bytes, "image/png"
-    except Exception as e: print(f"ERROR: [Fal Helper] Image tensor processing failed: {e}"); traceback.print_exc(); return None, None
-
+# --- Helper Functions ---
 def _save_tensor_to_temp_video(image_tensor_batch, fps=30):
     if image_tensor_batch is None or image_tensor_batch.dim() != 4 or image_tensor_batch.shape[0] == 0: print("[Fal Helper] Invalid video tensor batch."); return None
     print("[Fal Helper] Saving video tensor batch to temp file...")
@@ -174,8 +145,7 @@ def _save_tensor_to_temp_video(image_tensor_batch, fps=30):
     finally:
         if video_writer and video_writer.isOpened(): video_writer.release()
 
-
-def _upload_media_to_fal(media_bytes, filename_hint, content_type):
+def _upload_media_to_fal(media_bytes, filename_hint, content_type): # Changed: removed  from filename_hint
     if not media_bytes: print(f"ERROR: [Fal Helper] No media bytes for upload ({filename_hint})."); return None
     temp_path = None
     try:
@@ -199,8 +169,23 @@ def _upload_media_to_fal(media_bytes, filename_hint, content_type):
             try: print(f"[Fal Helper] Cleaning temp upload: {temp_path}"); os.remove(temp_path)
             except Exception as cleanup_e: print(f"WARN: [Fal Helper] Temp upload cleanup failed: {cleanup_e}")
 
+
+def _prepare_image_bytes(image_tensor):
+    if image_tensor is None: print("[Fal Helper] No image tensor provided."); return None, None
+    print("[Fal Helper] Preparing image tensor...")
+    try:
+        if image_tensor.dim() == 4 and image_tensor.shape[0] == 1: img_tensor = image_tensor.squeeze(0)
+        elif image_tensor.dim() == 3: img_tensor = image_tensor
+        else: raise ValueError(f"Unexpected shape: {image_tensor.shape}")
+        img_tensor = img_tensor.cpu(); img_np = img_tensor.numpy()
+        if img_np.max() <= 1.0 and img_np.min() >= 0.0: img_np = (img_np * 255)
+        img_np = img_np.astype(np.uint8); pil_image = Image.fromarray(img_np, 'RGB')
+        buffered = io.BytesIO(); pil_image.save(buffered, format="PNG"); img_bytes = buffered.getvalue()
+        print(f"[Fal Helper] Image tensor prep complete ({len(img_bytes)} bytes).")
+        return img_bytes, "image/png"
+    except Exception as e: print(f"ERROR: [Fal Helper] Image tensor processing failed: {e}"); traceback.print_exc(); return None, None
+
 def _save_audio_tensor_to_temp_wav(audio_data):
-    # print(f"[Fal Helper] _save_audio... received keys: {audio_data.keys() if isinstance(audio_data, dict) else 'Not dict'}") # Debug
     if not isinstance(audio_data, dict) or "sample_rate" not in audio_data or \
        ("samples" not in audio_data and "waveform" not in audio_data):
         print("ERROR: [Fal Helper] Invalid audio data format."); return None
@@ -223,3 +208,4 @@ def _save_audio_tensor_to_temp_wav(audio_data):
         scipy.io.wavfile.write(temp_audio_filepath, sample_rate, samples_np)
         return temp_audio_filepath
     except Exception as e: print(f"ERROR: [Fal Helper] Failed saving audio tensor: {e}"); traceback.print_exc(); return None
+
