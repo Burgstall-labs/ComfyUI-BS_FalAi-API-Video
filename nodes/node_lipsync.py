@@ -16,7 +16,7 @@ import cv2 # Requires opencv-python: pip install opencv-python
 # Helper to access ComfyUI's path functions
 import folder_paths
 from ..utils.config import MODEL_CONFIGS, ALL_MODEL_NAMES_I2V, ALL_RESOLUTIONS, ALL_ASPECT_RATIOS
-from ..utils.helper import _prepare_image_bytes, _save_tensor_to_temp_video, _upload_media_to_fal, _save_audio_tensor_to_temp_wav, _poll_fal_job, parse_schema
+from ..utils.helper import _prepare_image_bytes, _save_tensor_to_temp_video, _upload_media_to_fal, _save_audio_tensor_to_temp_wav, _poll_fal_job
 
 # --- Define the LipSync Node Class with Polling ---
 class FalAILipSyncNode:
