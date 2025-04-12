@@ -49,14 +49,13 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
             print(f"ERROR: [Fal Helper] Job {request_id} exceeded timeout of {timeout} seconds.")
             # Attempt cancellation before raising timeout
             print(f"[Fal Helper] Attempting to cancel timed out job {request_id}...")
-            try:
-                # Use fal.cancel if available and correct
-                # Assuming fal_client has a cancel method like this:
+            try:                
                 fal_client.cancel(endpoint_id, request_id)
-                print(f"[Fal Poller] Cancel request sent for timed out job {request_id}.")
+                print(f"[Fal Helper] Cancel request sent for timed out job {request_id}.")
             except AttributeError:
-                 print(f"WARN: [Fal Poller] fal_client.cancel not found. Cannot programmatically cancel job {request_id}.")
-                 # If direct cancel isn't possible, maybe just raise timeout
+                print(f"WARN: [Fal Poller] fal_client.cancel not found. Cannot programmatically cancel job {request_id}.")
+            # If direct cancel isn't possible, maybe just raise timeout
+            
             except Exception as cancel_e:
                 print(f"WARN: [Fal Helper] Failed to send cancel request after timeout: {cancel_e}")
             raise TimeoutError(f"Fal.ai job {request_id} timed out after {timeout}s")
@@ -64,10 +63,17 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
         # --- Status Check ---
         try:
             status_response = fal_client.status(endpoint_id, request_id)
-            status = status_response.get('status')
-            queue_pos = status_response.get('queue_position')
-            
+            if isinstance(status_response, dict):
+                status = status_response.get('status', 'UNKNOWN')
+                queue_pos = status_response.get('queue_position')
+            else:  # Handle cases where status_response might not be a dictionary
+                status = str(status_response)  # Assuming __str__ method provides status
+                queue_pos = None
+
+
             print(f"[Fal Poller] Job {request_id}: Status={status}, Queue={queue_pos if queue_pos is not None else 'N/A'}, Elapsed={elapsed_time:.1f}s")
+
+
 
             if status == "COMPLETED":
                 print(f"[Fal Helper] Job {request_id} completed.") # No change in log message
@@ -78,33 +84,33 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
                 error_message = f"Fal.ai job {request_id} failed with status: {status}"
                 print(f"ERROR: [Fal Helper] {error_message}")
                 raise RuntimeError(error_message)
-            
-            elif status in ["IN_QUEUE", "IN_PROGRESS"]:
+
+            elif status in ["IN_QUEUE", "IN_PROGRESS", "QUEUED"]:  # Include "QUEUED"
                 try:
                     time.sleep(polling_interval)
                 except KeyboardInterrupt:
-                    print(f"\nWARN: [Fal Poller] KeyboardInterrupt caught during sleep for job {request_id}. Attempting cancellation...")
-                    raise KeyboardInterrupt # Re-raise
+                    print(f"\nWARN: [Fal Poller] KeyboardInterrupt caught during sleep for job {request_id}. Attempting cancellation...")                    
+                    raise
 
             else: # Unknown status
                 print(f"WARN: [Fal Poller] Job {request_id} has unknown status: {status}. Continuing poll.")
                 try:
                     time.sleep(polling_interval)
                 except KeyboardInterrupt:
-                     print(f"\nWARN: [Fal Poller] KeyboardInterrupt during sleep (unknown status) for job {request_id}. Attempting cancellation...")
-                     raise KeyboardInterrupt # Re-raise
+                    print(f"\nWARN: [Fal Poller] KeyboardInterrupt during sleep (unknown status) for job {request_id}. Attempting cancellation...")
+                    raise
 
         except KeyboardInterrupt: # Catch during API call itself
             print(f"WARN: [Fal Helper] KeyboardInterrupt caught during status check for job {request_id}. Attempting cancellation...")
-            raise KeyboardInterrupt # Re-raise
+            raise
         except requests.exceptions.RequestException as e:
-             # Log network errors during status check but continue polling
-             print(f"WARN: [Fal Poller] Network error checking status for job {request_id}: {e}. Retrying...")
-             try:
-                 time.sleep(polling_interval * 2) # Longer sleep after network error
-             except KeyboardInterrupt:
-                 print(f"\nWARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
-                 raise KeyboardInterrupt
+            # Log network errors during status check but continue polling
+            print(f"WARN: [Fal Poller] Network error checking status for job {request_id}: {e}. Retrying...")
+            try:
+                time.sleep(polling_interval * 2)  # Longer sleep after network error
+            except KeyboardInterrupt:
+                print(f"\nWARN: [Fal Poller] KeyboardInterrupt during network error backoff for job {request_id}. Attempting cancellation...")
+                raise
         except Exception as e:
             # For other unexpected errors during status check, raise them
             print(f"ERROR: [Fal Poller] Unexpected error polling job {request_id}: {e}")
