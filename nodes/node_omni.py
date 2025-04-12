@@ -1,3 +1,4 @@
+import fal_client
 from PIL import Image
 import torch
 import os

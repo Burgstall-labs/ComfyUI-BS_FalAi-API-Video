@@ -1,4 +1,5 @@
 from PIL import Image
+import fal_client
 import torch
 import os
 import io
