@@ -64,8 +64,12 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
         # --- Status Check ---
         try:
             status_response = fal_client.status(endpoint_id, request_id)  # Use the direct fal.status
-            status = status_response.get("status")
-            queue_pos = status_response.get("queue_position")
+            status = status_response.status
+            try:
+              queue_pos = status_response.queue_position
+            except AttributeError:
+              queue_pos = None
+            
 
             print(f"[Fal Helper] Job {request_id}: Status={status}, Queue={queue_pos if queue_pos is not None else 'N/A'}, Elapsed={elapsed_time:.1f}s")
 
