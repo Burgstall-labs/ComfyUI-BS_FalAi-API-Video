@@ -111,26 +111,35 @@ class FalAPIVideoGeneratorT2V:
             return (frames_tensor,)
 
         except KeyboardInterrupt:
-            print(f"{log_prefix()} Execution interrupted by user.")
+            print(f"{log_prefix()} Execution interrupted by user. Cleaning up...")
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
                 try:
                     fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
+                    print(f"WARN: {log_prefix()} Failed to send cancel request for job {request_id}: {cancel_e}")
             return (None,)
         except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            print(f"ERROR: {log_prefix()} Job timed out: {e}. Cleaning up...")
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
                 try:
                     fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
+                    print(f"WARN: {log_prefix()} Failed to send cancel request for job {request_id} after timeout: {cancel_e}")
             return (None,)
-        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
-        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
-        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"{log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
+        except RuntimeError as e:
+            print(f"ERROR: {log_prefix()} Fal.ai job failed (Req ID: {request_id}): {e}")
+            return (None,)
+        except requests.exceptions.RequestException as e:
+            print(f"ERROR: {log_prefix()} Network error (Req ID: {request_id}): {e}")
+            traceback.print_exc(); return (None,)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e:
+            print(f"ERROR: {log_prefix()} Media processing error (Req ID: {request_id}): {e}")
+            traceback.print_exc(); return (None,)
+        except Exception as e:
+            req_id_str = f"Req ID: {request_id}" if request_id else 'N/A'
+            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
+            traceback.print_exc(); return (None,)

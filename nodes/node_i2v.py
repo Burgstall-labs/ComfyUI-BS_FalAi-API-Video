@@ -141,7 +141,10 @@ class FalAPIVideoGeneratorI2V:
         except KeyboardInterrupt:
             print(f"ERROR: {log_prefix()} Execution interrupted by user.")
             if request_id:
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job with ID: {request_id}...")
+                
+                # --- Attempt cancellation ---
+
                 try:
                     fal_client.cancel(endpoint_id, request_id)
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
@@ -151,7 +154,9 @@ class FalAPIVideoGeneratorI2V:
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}")
             if request_id:
-                print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
+                print(f"{log_prefix()} Attempting to cancel Fal.ai job with ID: {request_id} due to timeout...")
+
+                # --- Attempt cancellation ---
                 try:
                     fal_client.cancel(endpoint_id, request_id)
                     print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
@@ -161,7 +166,16 @@ class FalAPIVideoGeneratorI2V:
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
-        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"{log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
+        except Exception as e:
+            req_id_str = f"Req ID: {request_id}" if request_id else 'N/A'
+            err_details = ""
+            if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                try: err_details = f"Fal.ai details: {json.loads(e.response.text)}"
+                except Exception: err_details = f"Fal.ai response: {e.response.text}"
+            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e} {err_details}")
+            traceback.print_exc()
+            return (None,)
+        
         finally:
             if cleanup_temp_video and temp_video_filepath and os.path.exists(temp_video_filepath):
                 try: print(f"{log_prefix()} Cleaning temp: {temp_video_filepath}"); os.remove(temp_video_filepath)

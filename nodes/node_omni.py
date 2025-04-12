@@ -50,7 +50,7 @@ class FalAPIOmniProNode:
         except Exception as e: print(f"ERROR: {log_prefix()} Failed setting API Key: {e}"); traceback.print_exc(); return (None,)
         user_params = {}
         try:
-            if parameters_json and parameters_json.strip(): user_params = json.loads(parameters_json)
+            if parameters_json and parameters_json.strip(): user_params = json.loads(parameters_json) 
             if not isinstance(user_params, dict): raise ValueError("JSON must be a dict")
             print(f"{log_prefix()} Parsed parameters JSON.")
         except Exception as e: print(f"ERROR: {log_prefix()} Invalid JSON: {e}"); return (None,)
@@ -93,8 +93,7 @@ class FalAPIOmniProNode:
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (cleanup upload temps) ...
         if cleanup_temp_files:
-            for tf in temp_files_to_clean:
-                if tf and os.path.exists(tf):
+            for tf in temp_files_to_clean:                if tf and os.path.exists(tf):
                     try:
                         os.remove(tf)
                     except Exception: pass
@@ -112,12 +111,15 @@ class FalAPIOmniProNode:
         try:
             print(f"{log_prefix()} Submitting job to: {endpoint_id}")
             if not endpoint_id or not endpoint_id.strip(): raise ValueError("Endpoint ID missing")
-            handler = fal_client.submit(endpoint_id.strip(), arguments=final_payload); request_id = handler.request_id
+            handler = fal_client.submit(endpoint_id.strip(), arguments=final_payload)
+            request_id = handler.request_id
             print(f"{log_prefix()} Job submitted. ID: {request_id}")
             response = _poll_fal_job(endpoint_id, request_id, timeout=900) # Poll
             print(f"{log_prefix()} Job {request_id} completed.")
 
-            result_url = None; result_content_type = None; is_video = False; is_image = False
+            result_url = None; result_content_type = None; is_video = False; is_image = False;
+
+
             if isinstance(response, dict): # Flexible result parsing
                 vid_keys = ['video', 'videos']; img_keys = ['image', 'images']; url_key = 'url'
                 for k in vid_keys:
@@ -174,26 +176,30 @@ class FalAPIOmniProNode:
             else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None,)
 
         except KeyboardInterrupt:
-            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
+            print(f"ERROR: {log_prefix()} Execution interrupted by user."); 
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
                 try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
+                    fal_client.cancel(endpoint_id, request_id) # Use endpoint_to_call here
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None,)
         except TimeoutError as e:
-            print(f"ERROR: {log_prefix()} Job timed out: {e}")
+            print(f"ERROR: {log_prefix()} Job timed out: {e}"); 
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
                 try:
-                    fal_client.cancel(endpoint_id, request_id)
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
+                    fal_client.cancel(endpoint_id, request_id) # Use endpoint_to_call here
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None,)
-        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None,)
-        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None,)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None,)
-        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"{log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None,)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}; req_id: {request_id if request_id else 'N/A'}"); return (None,)
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None,)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None,)
+        except Exception as e: 
+            req_id_str = f"Req ID: {request_id}" if request_id else 'N/A'
+            print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
+            traceback.print_exc()
+            return (None,)

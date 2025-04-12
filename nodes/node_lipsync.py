@@ -85,7 +85,7 @@ class FalAILipSyncNode:
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving audio tensor failed.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors.");
-        if cleanup_temp_files:        
+        if cleanup_temp_files:
             for tf in temp_files_to_clean:
                 if tf and os.path.exists(tf):
                     try: os.remove(tf)
@@ -142,26 +142,26 @@ class FalAILipSyncNode:
             return (frames_tensor, input_audio, temp_download_filepath) # Success
 
         except KeyboardInterrupt:
-            print(f"{log_prefix()} Execution interrupted by user.")
+            print(f"ERROR: {log_prefix()} Execution interrupted by user.")
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
                 try:
                     fal_client.cancel(endpoint_to_call, request_id) # Use endpoint_to_call here
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None, None, None) # Correct return for LipSync
         except TimeoutError as e:
-            print(f"{log_prefix()} Job timed out: {e}")
+            print(f"ERROR: {log_prefix()} Job timed out: {e}")
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
                 try:
                     fal_client.cancel(endpoint_to_call, request_id) # Use endpoint_to_call here
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.") # No change in log message
+                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
                 except Exception as cancel_e:
                     print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None, None, None) # Correct return for LipSync
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}"); return (None, None, None) # Correct return
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}"); traceback.print_exc(); return (None, None, None)
         except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); return (None, None, None)
-        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"{log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None, None, None)
+        except Exception as e: req_id_str=f"Req ID: {request_id}" if request_id else 'N/A'; print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}"); traceback.print_exc(); return (None, None, None)
