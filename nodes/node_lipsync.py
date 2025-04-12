@@ -84,9 +84,11 @@ class FalAILipSyncNode:
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving audio tensor failed.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors.");
-            if cleanup_temp_files:
-                for tf in temp_files_to_clean:
-                     if tf and os.path.exists(tf): try: os.remove(tf); except Exception: pass
+        if cleanup_temp_files:        
+            for tf in temp_files_to_clean:
+                if tf and os.path.exists(tf):
+                    try: os.remove(tf)
+                    except Exception: pass
             return (None, None, None)
 
         # --- 4. Final Payload ---
