@@ -63,11 +63,11 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
 
         # --- Status Check ---
         try:
-            status_response = fal_client.status(endpoint_id, request_id)  # Use the direct fal.status
-            status = status_response.status
+            status_response = fal_client.status(endpoint_id, request_id)
+            status = status_response.get('status', 'UNKNOWN')
             try:
-              queue_pos = status_response.queue_position
-            except AttributeError:
+                queue_pos = status_response.queue_position
+            except (AttributeError, KeyError):
               queue_pos = None
             
 
@@ -117,8 +117,8 @@ def _poll_fal_job(endpoint_id, request_id, polling_interval=3, timeout=900): # D
             # Handle AttributeError if fal_client.status or fal_client.result not found
             if isinstance(e, AttributeError):
               if "status" in str(e) or "result" in str(e):
-                  print(f"ERROR: [Fal Helper] fal_client.status or fal_client.result not found. Please ensure that the fal_client package is correctly installed and imported.")
-                  raise
+                print(f"ERROR: [Fal Helper] fal_client.status or fal_client.result not found. Please ensure that the fal_client package is correctly installed and imported.")
+                raise
             else:
                 print(f"ERROR: [Fal Helper] Unexpected error polling job {request_id}: {e}")
                 traceback.print_exc()
