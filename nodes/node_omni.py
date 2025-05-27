@@ -21,20 +21,20 @@ from ..utils.helper import _prepare_image_bytes, _save_tensor_to_temp_video, _up
 
 # --- Define the Omni Pro Node Class with Polling ---
 class FalAPIOmniProNode:
-    AUTO_KEY_START_IMAGE = "image_url"; AUTO_KEY_END_IMAGE = "end_image_url"
+    AUTO_KEY_START_IMAGE = "image_url"; AUTO_KEY_END_IMAGE = "end_image_url"; AUTO_KEY_REFERENCE_IMAGES = "input_image_urls"
     AUTO_KEY_INPUT_VIDEO = "video_url"; AUTO_KEY_INPUT_AUDIO = "audio_url"
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": { "endpoint_id": ("STRING", {"multiline": False, "default": "fal-ai/some-model/endpoint-id"}), "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}), "parameters_json": ("STRING", {"multiline": True, "default": json.dumps({"prompt": "A description", "seed": 12345}, indent=2)}), },
-            "optional": { "start_image": ("IMAGE",), "end_image": ("IMAGE",), "input_video": ("IMAGE",), "input_audio": ("AUDIO",), "cleanup_temp_files": ("BOOLEAN", {"default": True}), "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}), }
+            "optional": { "start_image": ("IMAGE",), "end_image": ("IMAGE",), "reference_images": ("IMAGE",), "input_video": ("IMAGE",), "input_audio": ("AUDIO",), "cleanup_temp_files": ("BOOLEAN", {"default": True}), "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}), }
         }
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image_batch",)
     FUNCTION = "execute_omni_request"
     CATEGORY = "BS_FalAi-API-Omni"
 
-    def execute_omni_request(self, endpoint_id, api_key, parameters_json, start_image=None, end_image=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30):
+    def execute_omni_request(self, endpoint_id, api_key, parameters_json, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30):
         def log_prefix(): return "FalAPIOmniProNode:"
         print(f"{log_prefix()} Starting request...")
 
@@ -90,6 +90,34 @@ class FalAPIOmniProNode:
                     if url: uploaded_media_urls[self.AUTO_KEY_INPUT_AUDIO] = url
                     else: upload_error = True; print(f"ERROR: {log_prefix()} Input audio upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving input audio failed.")
+            if reference_images is not None and not upload_error:
+                reference_image_urls = []
+                # ComfyUI IMAGE batches are (N, H, W, C)
+                print(f"{log_prefix()} Processing {reference_images.shape[0]} reference image(s)...")
+                for i in range(reference_images.shape[0]):
+                    # _prepare_image_bytes expects a batch, so we unsqueeze the individual image
+                    single_image_tensor = reference_images[i].unsqueeze(0)
+                    img_bytes, ct = _prepare_image_bytes(single_image_tensor)
+                    filename = f"ref_img_{uuid.uuid4().hex}.png"
+                    url = None
+                    if img_bytes:
+                        print(f"{log_prefix()} Uploading reference image {i+1} ({filename})...")
+                        url = _upload_media_to_fal(img_bytes, filename, ct)
+                    
+                    if url:
+                        reference_image_urls.append(url)
+                        print(f"{log_prefix()} Reference image {i+1} uploaded: {url}")
+                    else:
+                        upload_error = True
+                        print(f"ERROR: {log_prefix()} Reference image {i+1} ({filename}) prep/upload failed.")
+                        break # Stop processing further reference images if one fails
+                
+                if not upload_error and reference_image_urls: # Only add if all uploads were successful and list is not empty
+                    uploaded_media_urls[self.AUTO_KEY_REFERENCE_IMAGES] = reference_image_urls
+                    print(f"{log_prefix()} All reference images processed and URLs collected.")
+                elif not upload_error and not reference_image_urls and reference_images.shape[0] > 0:
+                    # This case means images were provided, but loop didn't add any URLs
+                    print(f"WARN: {log_prefix()} Reference images were provided but no URLs were generated.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (cleanup upload temps) ...
 
@@ -105,9 +133,9 @@ class FalAPIOmniProNode:
         # --- 3. Final Payload ---
         final_payload = user_params.copy()
         print(f"{log_prefix()} Injecting media URLs...")
-        for auto_key, url in uploaded_media_urls.items():
+        for auto_key, url_or_list in uploaded_media_urls.items():
             if auto_key in final_payload: print(f"WARN: {log_prefix()} Overwriting key '{auto_key}'.")
-            final_payload[auto_key] = url
+            final_payload[auto_key] = url_or_list
         print(f"{log_prefix()} Final Payload keys: {list(final_payload.keys())}")
 
         # --- 4. API Call & Processing ---
