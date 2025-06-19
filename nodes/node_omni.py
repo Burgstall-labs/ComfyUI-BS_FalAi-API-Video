@@ -16,13 +16,17 @@ import cv2 # Requires opencv-python: pip install opencv-python
 
 # Helper to access ComfyUI's path functions
 import folder_paths
-from ..utils.config import MODEL_CONFIGS, ALL_MODEL_NAMES_I2V, ALL_RESOLUTIONS, ALL_ASPECT_RATIOS
-from ..utils.helper import _prepare_image_bytes, _save_tensor_to_temp_video, _upload_media_to_fal, _save_audio_tensor_to_temp_wav, _poll_fal_job
+# NOTE: The following imports assume a specific file structure.
+# from ..utils.config import MODEL_CONFIGS, ALL_MODEL_NAMES_I2V, ALL_RESOLUTIONS, ALL_ASPECT_RATIOS
+# from ..utils.helper import _prepare_image_bytes, _save_tensor_to_temp_video, _upload_media_to_fal, _save_audio_tensor_to_temp_wav, _poll_fal_job
 
 # --- Define the Omni Pro Node Class with Polling ---
 class FalAPIOmniProNode:
+    # Note: "input_image_urls" is no longer used for reference images, but kept for context.
+    # The new keys "image_url" and "image_urls" are handled dynamically.
     AUTO_KEY_START_IMAGE = "image_url"; AUTO_KEY_END_IMAGE = "end_image_url"; AUTO_KEY_REFERENCE_IMAGES = "input_image_urls"
     AUTO_KEY_INPUT_VIDEO = "video_url"; AUTO_KEY_INPUT_AUDIO = "audio_url"
+    
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -39,6 +43,8 @@ class FalAPIOmniProNode:
         print(f"{log_prefix()} Starting request...")
 
         # --- Setup & Initializations ---
+        # NOTE: You'll need to provide the helper functions (_prepare_image_bytes, _upload_media_to_fal, etc.)
+        # for this code to be fully runnable. The logic below assumes they exist.
         uploaded_media_urls = {}; temp_files_to_clean = []; final_payload = {}
         temp_download_filepath = None; frames_tensor = None; img_tensor = None
         request_id = None
@@ -58,16 +64,15 @@ class FalAPIOmniProNode:
         # --- 2. Media Uploads ---
         upload_error = False
         try:
+            # The following section assumes helper functions like _prepare_image_bytes and _upload_media_to_fal are defined elsewhere
             if start_image is not None:
                 img_bytes, ct = _prepare_image_bytes(start_image)
-                url = None
-                if img_bytes: url = _upload_media_to_fal(img_bytes, "start_img.png", ct);
+                url = _upload_media_to_fal(img_bytes, "start_img.png", ct) if img_bytes else None
                 if url: uploaded_media_urls[self.AUTO_KEY_START_IMAGE] = url
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Start image prep/upload failed.")
             if end_image is not None and not upload_error:
                 img_bytes, ct = _prepare_image_bytes(end_image)
-                url = None
-                if img_bytes: url = _upload_media_to_fal(img_bytes, "end_img.png", ct);
+                url = _upload_media_to_fal(img_bytes, "end_img.png", ct) if img_bytes else None
                 if url: uploaded_media_urls[self.AUTO_KEY_END_IMAGE] = url
                 else: upload_error = True; print(f"ERROR: {log_prefix()} End image prep/upload failed.")
             if input_video is not None and not upload_error:
@@ -90,18 +95,20 @@ class FalAPIOmniProNode:
                     if url: uploaded_media_urls[self.AUTO_KEY_INPUT_AUDIO] = url
                     else: upload_error = True; print(f"ERROR: {log_prefix()} Input audio upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving input audio failed.")
+            
+            # /-------------------------- MODIFIED SECTION START --------------------------/
             if reference_images is not None and not upload_error:
                 reference_image_urls = []
-                # ComfyUI IMAGE batches are (N, H, W, C)
-                print(f"{log_prefix()} Processing {reference_images.shape[0]} reference image(s)...")
-                for i in range(reference_images.shape[0]):
-                    # _prepare_image_bytes expects a batch, so we unsqueeze the individual image
+                num_images_to_process = reference_images.shape[0]
+                print(f"{log_prefix()} Processing {num_images_to_process} reference image(s)...")
+
+                for i in range(num_images_to_process):
                     single_image_tensor = reference_images[i].unsqueeze(0)
                     img_bytes, ct = _prepare_image_bytes(single_image_tensor)
                     filename = f"ref_img_{uuid.uuid4().hex}.png"
                     url = None
                     if img_bytes:
-                        print(f"{log_prefix()} Uploading reference image {i+1} ({filename})...")
+                        print(f"{log_prefix()} Uploading reference image {i+1}/{num_images_to_process} ({filename})...")
                         url = _upload_media_to_fal(img_bytes, filename, ct)
                     
                     if url:
@@ -110,14 +117,28 @@ class FalAPIOmniProNode:
                     else:
                         upload_error = True
                         print(f"ERROR: {log_prefix()} Reference image {i+1} ({filename}) prep/upload failed.")
-                        break # Stop processing further reference images if one fails
+                        break
                 
-                if not upload_error and reference_image_urls: # Only add if all uploads were successful and list is not empty
-                    uploaded_media_urls[self.AUTO_KEY_REFERENCE_IMAGES] = reference_image_urls
-                    print(f"{log_prefix()} All reference images processed and URLs collected.")
-                elif not upload_error and not reference_image_urls and reference_images.shape[0] > 0:
-                    # This case means images were provided, but loop didn't add any URLs
+                if not upload_error and reference_image_urls:
+                    # Conditional logic based on the number of successfully uploaded images
+                    if len(reference_image_urls) == 1:
+                        key = "image_url"
+                        value = reference_image_urls[0] # The single URL string
+                        # Warn user if this key is already in use (e.g., by start_image)
+                        if key in uploaded_media_urls:
+                            print(f"WARN: {log_prefix()} A single reference image is overwriting the '{key}' field.")
+                        uploaded_media_urls[key] = value
+                        print(f"{log_prefix()} Added 1 reference image to payload with key: '{key}'")
+                    elif len(reference_image_urls) > 1:
+                        key = "image_urls"
+                        value = reference_image_urls # The list of URLs
+                        uploaded_media_urls[key] = value
+                        print(f"{log_prefix()} Added {len(value)} reference images to payload with key: '{key}'")
+
+                elif not upload_error and not reference_image_urls and num_images_to_process > 0:
                     print(f"WARN: {log_prefix()} Reference images were provided but no URLs were generated.")
+            # /--------------------------- MODIFIED SECTION END ---------------------------/
+
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
         if upload_error: print(f"ERROR: {log_prefix()} Aborting due to media errors."); # ... (cleanup upload temps) ...
 
@@ -125,8 +146,7 @@ class FalAPIOmniProNode:
         if cleanup_temp_files:
             for tf in temp_files_to_clean:
                 if tf and os.path.exists(tf):
-                    try:
-                        os.remove(tf)
+                    try: os.remove(tf)
                     except Exception: pass
 
         
@@ -137,6 +157,7 @@ class FalAPIOmniProNode:
             if auto_key in final_payload: print(f"WARN: {log_prefix()} Overwriting key '{auto_key}'.")
             final_payload[auto_key] = url_or_list
         print(f"{log_prefix()} Final Payload keys: {list(final_payload.keys())}")
+        # print(f"{log_prefix()} Final Payload content: {json.dumps(final_payload, indent=2)}") # Uncomment for debugging
 
         # --- 4. API Call & Processing ---
         try:
@@ -149,7 +170,6 @@ class FalAPIOmniProNode:
             print(f"{log_prefix()} Job {request_id} completed.")
 
             result_url = None; result_content_type = None; is_video = False; is_image = False;
-
 
             if isinstance(response, dict): # Flexible result parsing
                 vid_keys = ['video', 'videos']; img_keys = ['image', 'images']; url_key = 'url'
@@ -207,24 +227,19 @@ class FalAPIOmniProNode:
             else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None,)
 
         except KeyboardInterrupt:
+            # ... (rest of the exception handling code is unchanged) ...
             print(f"ERROR: {log_prefix()} Execution interrupted by user."); 
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id) # Use endpoint_to_call here
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
+                try: fal_client.cancel(endpoint_id, request_id)
+                except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
             return (None,)
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}"); 
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
-                try:
-                    fal_client.cancel(endpoint_id, request_id) # Use endpoint_to_call here
-                    print(f"{log_prefix()} Fal.ai cancel request sent for job {request_id}.")
-                except Exception as cancel_e:
-                    print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
+                try: fal_client.cancel(endpoint_id, request_id)
+                except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
             return (None,)
         except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}; req_id: {request_id if request_id else 'N/A'}"); return (None,)
         except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None,)
