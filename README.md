@@ -4,20 +4,12 @@ This repository contains custom nodes for ComfyUI that allow you to interact wit
 
 ## Project Structure
 
-The project has been refactored to improve organization. The main components are now distributed across multiple files:
-
--   `ComfyUI-BS_FalAi-API-Video/`: Main directory
-    -   `utils/`: Contains utility modules.
-        -   `config.py`: Model configurations.
-        -   `helper.py`: Helper functions.
--   `nodes/`: Contains the node implementations.
-    -   `node_i2v.py`: Image-to-Video node.
-    -   `node_t2v.py`: Text-to-Video node.
-    -   `node_omni.py`: Omni Pro node.
-    -   `node_lipsync.py`: LipSync node.
-    -   `__init__.py`: Marks the nodes directory as a package.
-    -   `main.py`: Contains the `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS`.
-    -   `__init__.py`: Exports the `NODE_CLASS_MAPPINGS` and `NODE_DISPLAY_NAME_MAPPINGS`
+The project has a clean and standard structure for ComfyUI custom nodes:
+-   `ComfyUI-BS_FalAi-API-Video/`: Main directory.
+    -   `nodes/`: Contains all node implementation files (`node_i2v.py`, `node_t2v.py`, `node_omni_v2.py`, etc.).
+    -   `utils/`: Contains shared utility modules like `config.py` and `helper.py`.
+    -   `__init__.py`: The main entry point that registers all nodes with ComfyUI.
+    -   `README.md`: This file.
 
 ## Nodes Included
 
@@ -41,11 +33,23 @@ The project has been refactored to improve organization. The main components are
     *   Requires other non-media model parameters to be provided as a **JSON object** in the `parameters_json` field. Refer to the specific endpoint documentation on fal.ai for required parameters (e.g., the [Kling Image-to-Video API docs](https://fal.ai/models/fal-ai/kling-video/v1/standard/image-to-video/api)).
     *   Returns the resulting image or video frames.
 
+5.  **FAL AI Omni Pro v2 (`FalOmniProV2Node`)**:
+    *   The new **future-proof** powerhouse node designed to work with **any current or future `fal.ai` API endpoint** without requiring code changes.
+    *   Instead of a JSON blob, it uses dynamic `arg_name` and `arg_value` fields, allowing you to build the API payload directly in the UI.
+    *   **Automatic Media Uploads**: Handles `start_image`, `end_image`, `reference_images`, `input_video`, and `input_audio` sockets automatically.
+    *   **Batch Image Support**: Intelligently uses `image_url` for a single reference image and `image_urls` for a batch of reference images.
+    *   **Multiple Outputs**:
+        *   `image_batch`: The generated video frames or image.
+        *   `audio`: Automatically extracts the audio from the generated video, if present.
+        *   `fps`: Outputs the detected frames per second of the generated video.
+    *   **Save Original Video**: Includes a toggle to save the pristine, untouched video file from the API directly to your ComfyUI output directory.
+
 ## Features
 
 *   Integrate powerful fal.ai models into ComfyUI.
 *   Dedicated nodes for common Text-to-Video, Image-to-Video, and LipSync tasks.
 *   Versatile "Omni Pro" node for accessing virtually any fal.ai endpoint.
+*   A **future-proof "Omni Pro v2" node** with dynamic argument building, audio extraction, and more.
 *   Automatic handling of media uploads for relevant nodes.
 *   Leverages the `fal-client` library for API interaction.
 
@@ -79,40 +83,32 @@ The project has been refactored to improve organization. The main components are
 
 *   **API Key Input:** Each node requires your fal.ai API key. Paste your `key_id:key_secret` string into the `api_key` text field on the node.
 
-### Text-to-Video & Image-to-Video Nodes
+### Omni Pro v2 Node (Recommended)
 
-1.  Add the `FAL AI Text-to-Video` or `FAL AI Image-to-Video` node.
-2.  Select the desired fal.ai `model_name` from the dropdown.
-3.  Enter your `api_key`.
-4.  For I2V, connect an input `image`.
-5.  Fill in the `prompt` and optionally `negative_prompt`.
-6.  Adjust other parameters using the provided widgets.
-7.  Output: Generated video frames (IMAGE batch).
+This is the most flexible and powerful node.
 
-### FAL AI LipSync Node
-
-1.  Add the `FAL AI LipSync Node`.
-2.  Enter your `api_key`.
-3.  Select the `endpoint_version` ("v2.0" or "v1.9").
-4.  Connect the required `input_video` (IMAGE batch) and `input_audio` (AUDIO).
-5.  Optionally, adjust the `sync_mode`.
-6.  If using "v1.9", optionally select a specific `model` version. The `model` setting is ignored if "v2.0" is selected.
-7.  Output: Lipsynced video frames (IMAGE batch).
-
-### FAL AI API Omni Pro Node
-
-This node requires you to know the details of the target fal.ai endpoint.
-
-1.  Add the `FAL AI API Omni Pro Node`.
-2.  **`endpoint_id`**: Paste the exact endpoint ID string from fal.ai documentation.
+1.  Add the `Fal Omni Pro v2` node to your workflow.
+2.  **`model_id`**: Paste the exact endpoint ID from the `fal.ai` model page (e.g., `fal-ai/veo3.1/reference-to-video`).
 3.  **`api_key`**: Enter your `key_id:key_secret`.
-4.  **`parameters_json`**:
-    *   Provide a valid JSON object containing **only the non-media parameters** needed by the endpoint (e.g., `prompt`, `seed`, `steps`, booleans, etc.). Check the endpoint's documentation on fal.ai.
-    *   **Do not** include keys for media (`image_url`, `video_url`, `audio_url`, `end_image_url`) if connecting the corresponding sockets below.
-    *   Example: `{"prompt": "A cat", "seed": 123, "num_steps": 25}`
-5.  **Media Inputs (Optional)**: Connect `start_image`, `end_image`, `input_video`, or `input_audio` as needed by the endpoint. The node automatically uploads these and injects the URLs using standard keys (`image_url`, `end_image_url`, `video_url`, `audio_url`). If you manually include one of these keys in the JSON, the uploaded file URL will overwrite it.
-6.  **Other Inputs**: Adjust `cleanup_temp_files` and `output_video_fps` if needed.
-7.  Output: Resulting image or video frames (IMAGE batch).
+4.  **Dynamic Arguments (`arg_1_name`, `arg_1_value`, etc.)**:
+    *   For each parameter required by the API (like `prompt`, `resolution`, `generate_audio`), fill in a pair of fields.
+    *   `arg_1_name`: `prompt`
+    *   `arg_1_value`: `A beautiful cinematic shot of a sunset.`
+    *   The node automatically handles converting values like `true`, `false`, and numbers to the correct type.
+5.  **Media Inputs**: Connect any required media, such as `reference_images`.
+6.  **Save & FPS**:
+    *   Enable the `save_original_video` toggle to keep a copy of the output MP4.
+    *   Connect the `fps` and `audio` outputs to other nodes (like VHS VideoCombine) as needed.
+
+### Legacy Nodes (Text-to-Video, Image-to-Video, etc.)
+
+These are simpler to use for their specific tasks but less flexible.
+
+1.  Add the desired node (e.g., `FAL AI Text-to-Video`).
+2.  Select the `model_name` from the dropdown.
+3.  Fill in your `api_key` and other parameters.
+4.  Connect media inputs if required.
+5.  The output will be the generated video frames.
 
 ## Dependencies
 
@@ -122,14 +118,16 @@ This node requires you to know the details of the target fal.ai endpoint.
 *   `Pillow`
 *   `opencv-python`
 *   `scipy`
+*   **`ffmpeg`**: Required by the Omni Pro v2 node for audio extraction. Please ensure `ffmpeg` is installed and accessible in your system's PATH.
 
 (A `requirements.txt` file is included for easy installation via `pip install -r requirements.txt`.)
 
 ## Notes & Troubleshooting
 
+*   **FFMPEG for Omni Pro v2**: The audio extraction feature of the v2 node will fail gracefully if `ffmpeg` is not found, but you will not get an audio output.
 *   **API Key Format:** Ensure the key is `key_id:key_secret`.
-*   **Endpoint ID/Parameters:** For the Omni node, always check the official fal.ai documentation for the correct endpoint ID and its specific parameter requirements.
-*   **JSON Validity:** Use a validator to check your JSON in the Omni node's `parameters_json` field if you encounter issues.
+*   **Endpoint ID/Parameters:** For the Omni nodes, always check the official fal.ai documentation for the correct endpoint ID and its specific parameter requirements.
+*   **JSON Validity:** Use a validator to check your JSON in the legacy Omni node's `parameters_json` field if you encounter issues.
 *   **Temporary Files:** Ensure write permissions for ComfyUI's temp directory. Disable `cleanup_temp_files` only for debugging.
 
 ## License
