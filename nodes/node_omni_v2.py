@@ -54,8 +54,8 @@ class FalOmniProV2Node:
             inputs["optional"][f"arg_{i}_value"] = ("STRING", {"default": "", "multiline": True})
         return inputs
 
-    RETURN_TYPES = ("IMAGE", "AUDIO")
-    RETURN_NAMES = ("image_batch", "audio")
+    RETURN_TYPES = ("IMAGE", "AUDIO", "FLOAT")
+    RETURN_NAMES = ("image_batch", "audio", "fps")
     FUNCTION = "run"
     CATEGORY = "BS_FalAi-API-Omni"
 
@@ -92,10 +92,10 @@ class FalOmniProV2Node:
         request_id = None
 
         # --- 1. API Key & Params ---
-        if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)": print(f"ERROR: {log_prefix()} API Key missing."); return (None,)
+        if not api_key or not api_key.strip() or api_key == "Paste FAL_KEY credentials here (e.g., key_id:key_secret)": print(f"ERROR: {log_prefix()} API Key missing."); return (None, None, 0.0)
         api_key_value = api_key.strip()
         try: os.environ["FAL_KEY"] = api_key_value; print(f"{log_prefix()} Using API Key.")
-        except Exception as e: print(f"ERROR: {log_prefix()} Failed setting API Key: {e}"); traceback.print_exc(); return (None,)
+        except Exception as e: print(f"ERROR: {log_prefix()} Failed setting API Key: {e}"); traceback.print_exc(); return (None, None, 0.0)
         
         user_params = {}
         try:
@@ -107,7 +107,7 @@ class FalOmniProV2Node:
             print(f"{log_prefix()} Parsed dynamic parameters.")
         except Exception as e:
             print(f"ERROR: {log_prefix()} Failed to parse dynamic arguments: {e}")
-            return (None,)
+            return (None, None, 0.0)
 
         # --- 2. Media Uploads ---
         upload_error = False
@@ -233,7 +233,7 @@ class FalOmniProV2Node:
                     if not is_video and not is_image:
                         if any(ext in result_url.lower() for ext in ['.mp4','.webm']): is_video=True
                         elif any(ext in result_url.lower() for ext in ['.png','.jpg','.jpeg','.webp']): is_image=True
-            if not result_url: print(f"WARN: {log_prefix()} No media URL found in result."); return (None,)
+            if not result_url: print(f"WARN: {log_prefix()} No media URL found in result."); return (None, None, 0.0)
 
             print(f"{log_prefix()} Downloading result: {result_url}")
             media_response = requests.get(result_url, stream=True, timeout=600); media_response.raise_for_status()
@@ -286,8 +286,14 @@ class FalOmniProV2Node:
                 except Exception as e:
                     print(f"WARN: {log_prefix()} An unexpected error occurred during audio extraction: {e}")
 
-                print(f"{log_prefix()} Extracting frames...")
+                print(f"{log_prefix()} Extracting frames and FPS...")
                 frames_list = []; cap = cv2.VideoCapture(temp_download_filepath)
+
+                detected_fps = cap.get(cv2.CAP_PROP_FPS)
+                if detected_fps == 0:
+                    print(f"WARN: {log_prefix()} Detected FPS is 0. Using input FPS value as fallback.")
+                    detected_fps = float(output_video_fps)
+
                 if not cap.isOpened(): raise IOError(f"Cannot open video: {temp_download_filepath}")
                 while True:
                     ret, frame = cap.read();
@@ -298,13 +304,13 @@ class FalOmniProV2Node:
                 frames_np = np.stack(frames_list); frames_tensor = torch.from_numpy(frames_np).float()/255.0
                 if frames_tensor is None: raise ValueError("Frame tensor failed")
                 print(f"{log_prefix()} Video processed. Shape: {frames_tensor.shape}")
-                return (frames_tensor, audio_tensor)
+                return (frames_tensor, audio_tensor, detected_fps)
             elif is_image:
                 image_bytes = media_response.content; pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
                 img_np = np.array(pil_image, dtype=np.float32) / 255.0; img_tensor = torch.from_numpy(img_np).unsqueeze(0)
                 print(f"{log_prefix()} Image processed. Shape: {img_tensor.shape}")
-                return (img_tensor, None)
-            else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None, None)
+                return (img_tensor, None, 0.0)
+            else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None, None, 0.0)
 
         except KeyboardInterrupt:
             print(f"ERROR: {log_prefix()} Execution interrupted by user."); 
@@ -312,19 +318,19 @@ class FalOmniProV2Node:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
                 try: fal_client.cancel(model_id, request_id)
                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None, None)
+            return (None, None, 0.0)
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}"); 
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
                 try: fal_client.cancel(model_id, request_id)
                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None, None)
-        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}; req_id: {request_id if request_id else 'N/A'}"); return (None, None)
-        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None, None)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None, None)
+            return (None, None, 0.0)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}; req_id: {request_id if request_id else 'N/A'}"); return (None, None, 0.0)
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None, None, 0.0)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None, None, 0.0)
         except Exception as e: 
             req_id_str = f"Req ID: {request_id}" if request_id else 'N/A'
             print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
             traceback.print_exc()
-            return (None, None)
+            return (None, None, 0.0)
