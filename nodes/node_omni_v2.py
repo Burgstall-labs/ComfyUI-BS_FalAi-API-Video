@@ -82,7 +82,10 @@ class FalOmniProV2Node:
             
         return value
 
-    def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, save_original_video=False, save_directory="fal_omni_v2_output", **kwargs):
+    def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, **kwargs):
+        save_original_video = kwargs.get("save_original_video", False)
+        save_directory = kwargs.get("save_directory", "fal_omni_v2_output")
+
         def log_prefix(): return "FalOmniProV2Node:"
         print(f"{log_prefix()} Starting request...")
 
@@ -273,7 +276,14 @@ class FalOmniProV2Node:
                         sample_rate, wav_data = scipy.io.wavfile.read(temp_wav_path)
                         
                         # Normalize and convert to tensor
-                        waveform = torch.from_numpy(wav_data.astype(np.float32) / np.iinfo(wav_data.dtype).max).unsqueeze(0)
+                        normalized_wav = wav_data.astype(np.float32) / np.iinfo(wav_data.dtype).max
+                        
+                        if normalized_wav.ndim > 1:
+                            waveform_np = normalized_wav.T
+                        else:
+                            waveform_np = normalized_wav
+
+                        waveform = torch.from_numpy(waveform_np).unsqueeze(0)
                         audio_tensor = {"waveform": waveform, "sample_rate": sample_rate}
                         print(f"{log_prefix()} Audio extracted successfully. Shape: {waveform.shape}")
                     else:
