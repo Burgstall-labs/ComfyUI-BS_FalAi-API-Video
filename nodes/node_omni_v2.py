@@ -47,6 +47,7 @@ class FalOmniProV2Node:
                 "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}),
                 "save_original_video": ("BOOLEAN", {"default": False}),
                 "save_directory": ("STRING", {"default": "fal_omni_v2_output"}),
+                "log_payload": ("BOOLEAN", {"default": False}),
             }
         }
         for i in range(1, 11):
@@ -85,6 +86,7 @@ class FalOmniProV2Node:
     def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, **kwargs):
         save_original_video = kwargs.get("save_original_video", False)
         save_directory = kwargs.get("save_directory", "fal_omni_v2_output")
+        log_payload = kwargs.get("log_payload", False)
 
         def log_prefix(): return "FalOmniProV2Node:"
         print(f"{log_prefix()} Starting request...")
@@ -203,7 +205,9 @@ class FalOmniProV2Node:
             if auto_key in final_payload: print(f"WARN: {log_prefix()} Overwriting key '{auto_key}'.")
             final_payload[auto_key] = url_or_list
         print(f"{log_prefix()} Final Payload keys: {list(final_payload.keys())}")
-        # print(f"{log_prefix()} Final Payload content: {json.dumps(final_payload, indent=2)}") # Uncomment for debugging
+        
+        if log_payload:
+            print(f"{log_prefix()} Final Payload content: {json.dumps(final_payload, indent=2)}")
 
         # --- 4. API Call & Processing ---
         try:

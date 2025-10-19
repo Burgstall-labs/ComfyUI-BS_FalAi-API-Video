@@ -43,6 +43,7 @@ The project has a clean and standard structure for ComfyUI custom nodes:
         *   `audio`: Automatically extracts the audio from the generated video, if present.
         *   `fps`: Outputs the detected frames per second of the generated video.
     *   **Save Original Video**: Includes a toggle to save the pristine, untouched video file from the API directly to your ComfyUI output directory.
+    *   **Debug Logging**: A `log_payload` toggle to print the exact JSON payload sent to the API in the console, for easy debugging.
 
 ## Features
 
@@ -99,6 +100,7 @@ This is the most flexible and powerful node.
 6.  **Save & FPS**:
     *   Enable the `save_original_video` toggle to keep a copy of the output MP4.
     *   Connect the `fps` and `audio` outputs to other nodes (like VHS VideoCombine) as needed.
+7.  **Debugging**: Enable `log_payload` to see the final JSON payload in your console.
 
 ### Legacy Nodes (Text-to-Video, Image-to-Video, etc.)
 
