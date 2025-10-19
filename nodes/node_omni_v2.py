@@ -13,6 +13,8 @@ import requests
 import numpy as np
 import scipy.io.wavfile
 import cv2 # Requires opencv-python: pip install opencv-python
+import subprocess
+import shutil
 
 # Helper to access ComfyUI's path functions
 import folder_paths
@@ -43,6 +45,8 @@ class FalOmniProV2Node:
                 "input_audio": ("AUDIO",),
                 "cleanup_temp_files": ("BOOLEAN", {"default": True}),
                 "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}),
+                "save_original_video": ("BOOLEAN", {"default": False}),
+                "save_directory": ("STRING", {"default": "fal_omni_v2_output"}),
             }
         }
         for i in range(1, 11):
@@ -50,8 +54,8 @@ class FalOmniProV2Node:
             inputs["optional"][f"arg_{i}_value"] = ("STRING", {"default": "", "multiline": True})
         return inputs
 
-    RETURN_TYPES = ("IMAGE",)
-    RETURN_NAMES = ("image_batch",)
+    RETURN_TYPES = ("IMAGE", "AUDIO")
+    RETURN_NAMES = ("image_batch", "audio")
     FUNCTION = "run"
     CATEGORY = "BS_FalAi-API-Omni"
 
@@ -78,13 +82,13 @@ class FalOmniProV2Node:
             
         return value
 
-    def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, **kwargs):
+    def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, save_original_video=False, save_directory="fal_omni_v2_output", **kwargs):
         def log_prefix(): return "FalOmniProV2Node:"
         print(f"{log_prefix()} Starting request...")
 
         # --- Setup & Initializations ---
         uploaded_media_urls = {}; temp_files_to_clean = []; final_payload = {}
-        temp_download_filepath = None; frames_tensor = None; img_tensor = None
+        temp_download_filepath = None; frames_tensor = None; img_tensor = None; audio_tensor = None
         request_id = None
 
         # --- 1. API Key & Params ---
@@ -245,6 +249,43 @@ class FalOmniProV2Node:
                 with open(temp_download_filepath, 'wb') as f:
                     for chunk in media_response.iter_content(chunk_size=1024*1024): f.write(chunk)
                 print(f"{log_prefix()} Video downloaded: {temp_download_filepath}")
+
+                if save_original_video:
+                    try:
+                        final_output_dir = os.path.join(folder_paths.get_output_directory(), save_directory)
+                        os.makedirs(final_output_dir, exist_ok=True)
+                        final_filename = f"fal_omni_{int(time.time())}_{uuid.uuid4().hex[:8]}{extension}"
+                        final_filepath = os.path.join(final_output_dir, final_filename)
+                        shutil.copy(temp_download_filepath, final_filepath)
+                        print(f"{log_prefix()} Saved original video to: {final_filepath}")
+                    except Exception as e:
+                        print(f"WARN: {log_prefix()} Could not save original video: {e}")
+
+                try:
+                    temp_wav_path = os.path.splitext(temp_download_filepath)[0] + ".wav"
+                    ffmpeg_cmd = ['ffmpeg', '-i', temp_download_filepath, '-vn', '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', temp_wav_path]
+                    
+                    print(f"{log_prefix()} Attempting to extract audio with ffmpeg...")
+                    subprocess.run(ffmpeg_cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    if os.path.exists(temp_wav_path):
+                        temp_files_to_clean.append(temp_wav_path)
+                        sample_rate, wav_data = scipy.io.wavfile.read(temp_wav_path)
+                        
+                        # Normalize and convert to tensor
+                        waveform = torch.from_numpy(wav_data.astype(np.float32) / np.iinfo(wav_data.dtype).max).unsqueeze(0)
+                        audio_tensor = {"waveform": waveform, "sample_rate": sample_rate}
+                        print(f"{log_prefix()} Audio extracted successfully. Shape: {waveform.shape}")
+                    else:
+                        print(f"WARN: {log_prefix()} ffmpeg ran but output file not found. Video may have no audio.")
+
+                except FileNotFoundError:
+                    print(f"WARN: {log_prefix()} `ffmpeg` not found. Cannot extract audio. Please install ffmpeg and ensure it's in your system's PATH.")
+                except subprocess.CalledProcessError:
+                    print(f"WARN: {log_prefix()} ffmpeg failed. The video likely has no audio stream.")
+                except Exception as e:
+                    print(f"WARN: {log_prefix()} An unexpected error occurred during audio extraction: {e}")
+
                 print(f"{log_prefix()} Extracting frames...")
                 frames_list = []; cap = cv2.VideoCapture(temp_download_filepath)
                 if not cap.isOpened(): raise IOError(f"Cannot open video: {temp_download_filepath}")
@@ -257,13 +298,13 @@ class FalOmniProV2Node:
                 frames_np = np.stack(frames_list); frames_tensor = torch.from_numpy(frames_np).float()/255.0
                 if frames_tensor is None: raise ValueError("Frame tensor failed")
                 print(f"{log_prefix()} Video processed. Shape: {frames_tensor.shape}")
-                return (frames_tensor,)
+                return (frames_tensor, audio_tensor)
             elif is_image:
                 image_bytes = media_response.content; pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
                 img_np = np.array(pil_image, dtype=np.float32) / 255.0; img_tensor = torch.from_numpy(img_np).unsqueeze(0)
                 print(f"{log_prefix()} Image processed. Shape: {img_tensor.shape}")
-                return (img_tensor,)
-            else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None,)
+                return (img_tensor, None)
+            else: print(f"ERROR: {log_prefix()} Could not determine result type."); return (None, None)
 
         except KeyboardInterrupt:
             print(f"ERROR: {log_prefix()} Execution interrupted by user."); 
@@ -271,19 +312,19 @@ class FalOmniProV2Node:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id}...")
                 try: fal_client.cancel(model_id, request_id)
                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request: {cancel_e}")
-            return (None,)
+            return (None, None)
         except TimeoutError as e:
             print(f"ERROR: {log_prefix()} Job timed out: {e}"); 
             if request_id:
                 print(f"{log_prefix()} Attempting to cancel Fal.ai job {request_id} due to timeout...")
                 try: fal_client.cancel(model_id, request_id)
                 except Exception as cancel_e: print(f"WARN: {log_prefix()} Failed to send cancel request after timeout: {cancel_e}")
-            return (None,)
-        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}; req_id: {request_id if request_id else 'N/A'}"); return (None,)
-        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None,)
-        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None,)
+            return (None, None)
+        except RuntimeError as e: print(f"ERROR: {log_prefix()} Fal.ai job failed: {e}; req_id: {request_id if request_id else 'N/A'}"); return (None, None)
+        except requests.exceptions.RequestException as e: print(f"ERROR: {log_prefix()} Network error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None, None)
+        except (cv2.error, IOError, ValueError, Image.UnidentifiedImageError) as e: print(f"ERROR: {log_prefix()} Media processing error: {e}; req_id: {request_id if request_id else 'N/A'}"); traceback.print_exc(); return (None, None)
         except Exception as e: 
             req_id_str = f"Req ID: {request_id}" if request_id else 'N/A'
             print(f"ERROR: {log_prefix()} Unexpected error ({req_id_str}): {e}")
             traceback.print_exc()
-            return (None,)
+            return (None, None)
