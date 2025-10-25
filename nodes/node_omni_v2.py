@@ -85,7 +85,7 @@ class FalOmniProV2Node:
         except ValueError:
             pass
             
-        return value
+        return clean_value
 
     def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, override_start_image_param="", override_end_image_param="", override_video_param="", override_audio_param="", **kwargs):
         save_original_video = kwargs.get("save_original_video", False)
