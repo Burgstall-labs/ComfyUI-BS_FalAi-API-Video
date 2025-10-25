@@ -29,14 +29,14 @@ class FalAILipSyncNode:
     def INPUT_TYPES(cls):
         return {
             "required": { "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}), "endpoint_version": (["v2.0", "v1.9"], {"default": "v2.0"}), "input_video": ("IMAGE",), "input_audio": ("AUDIO",), },
-            "optional": { "sync_mode": (["cut_off", "loop", "bounce"], {"default": "cut_off"}), "model": (cls.MODEL_OPTIONS_V1_9, {"default": "lipsync-1.9.0-beta"}), "cleanup_temp_files": ("BOOLEAN", {"default": True}), "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}), }
+            "optional": { "sync_mode": (["cut_off", "loop", "bounce"], {"default": "cut_off"}), "model": (cls.MODEL_OPTIONS_V1_9, {"default": "lipsync-1.9.0-beta"}), "cleanup_temp_files": ("BOOLEAN", {"default": True}), "output_video_fps": ("INT", {"default": 30, "min": 1, "max": 120}), "override_video_param": ("STRING", {"multiline": False, "default": ""}), "override_audio_param": ("STRING", {"multiline": False, "default": ""}), }
         }
     RETURN_TYPES = ("IMAGE", "AUDIO", "STRING")
     RETURN_NAMES = ("image_batch", "synced_audio", "video_path")
     FUNCTION = "execute_lipsync"
     CATEGORY = "BS_FalAi-API-Video"
 
-    def execute_lipsync(self, api_key, endpoint_version, input_video, input_audio, sync_mode="cut_off", model="lipsync-1.9.0-beta", cleanup_temp_files=True, output_video_fps=30):
+    def execute_lipsync(self, api_key, endpoint_version, input_video, input_audio, sync_mode="cut_off", model="lipsync-1.9.0-beta", cleanup_temp_files=True, output_video_fps=30, override_video_param="", override_audio_param=""):
         def log_prefix(): return "FalAILipSyncNode:"
         print(f"{log_prefix()} Starting request for version: {endpoint_version}")
 
@@ -67,8 +67,9 @@ class FalAILipSyncNode:
             if temp_video_path and os.path.exists(temp_video_path):
                 temp_files_to_clean.append(temp_video_path)
                 with open(temp_video_path, 'rb') as vf: video_bytes = vf.read()
+                video_param_name = override_video_param.strip() if override_video_param.strip() else self.PAYLOAD_KEY_VIDEO
                 if video_bytes: url_vid = _upload_media_to_fal(video_bytes, "input_video.mp4", "video/mp4")
-                if url_vid: uploaded_media_urls[self.PAYLOAD_KEY_VIDEO] = url_vid
+                if url_vid: uploaded_media_urls[video_param_name] = url_vid
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Video read/upload failed.")
             else: upload_error = True; print(f"ERROR: {log_prefix()} Saving video tensor failed.")
 
@@ -79,8 +80,9 @@ class FalAILipSyncNode:
                 if temp_audio_path and os.path.exists(temp_audio_path):
                     temp_files_to_clean.append(temp_audio_path)
                     with open(temp_audio_path, 'rb') as af: audio_bytes = af.read()
+                    audio_param_name = override_audio_param.strip() if override_audio_param.strip() else self.PAYLOAD_KEY_AUDIO
                     if audio_bytes: url_aud = _upload_media_to_fal(audio_bytes, "input_audio.wav", "audio/wav")
-                    if url_aud: uploaded_media_urls[self.PAYLOAD_KEY_AUDIO] = url_aud
+                    if url_aud: uploaded_media_urls[audio_param_name] = url_aud
                     else: upload_error = True; print(f"ERROR: {log_prefix()} Audio read/upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving audio tensor failed.")
         except Exception as e: print(f"ERROR: {log_prefix()} Media processing error: {e}"); traceback.print_exc(); upload_error = True
@@ -93,7 +95,9 @@ class FalAILipSyncNode:
             return (None, None, None)
 
         # --- 4. Final Payload ---
-        payload = { self.PAYLOAD_KEY_VIDEO: uploaded_media_urls[self.PAYLOAD_KEY_VIDEO], self.PAYLOAD_KEY_AUDIO: uploaded_media_urls[self.PAYLOAD_KEY_AUDIO], self.PAYLOAD_KEY_SYNC_MODE: sync_mode }
+        video_param_name = override_video_param.strip() if override_video_param.strip() else self.PAYLOAD_KEY_VIDEO
+        audio_param_name = override_audio_param.strip() if override_audio_param.strip() else self.PAYLOAD_KEY_AUDIO
+        payload = { video_param_name: uploaded_media_urls[video_param_name], audio_param_name: uploaded_media_urls[audio_param_name], self.PAYLOAD_KEY_SYNC_MODE: sync_mode }
         if endpoint_version == "v1.9": payload[self.PAYLOAD_KEY_MODEL] = model; print(f"{log_prefix()} Adding 'model': {model} for v1.9.")
         elif model != self.MODEL_OPTIONS_V1_9[0]: print(f"WARN: {log_prefix()} 'model' param '{model}' ignored for v2.0.")
         print(f"{log_prefix()} Final Payload keys: {list(payload.keys())}")

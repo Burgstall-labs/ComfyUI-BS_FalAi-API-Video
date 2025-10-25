@@ -25,7 +25,7 @@ class FalAPIVideoGeneratorI2V:
     def INPUT_TYPES(cls):
         return {
             "required": { "model_name": (ALL_MODEL_NAMES_I2V,), "api_key": ("STRING", {"multiline": False, "default": "Paste FAL_KEY credentials here (e.g., key_id:key_secret)"}), "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}), "prompt": ("STRING", {"multiline": True, "default": "A wild Burgstall appears"}), },
-            "optional": { "image": ("IMAGE",), "negative_prompt": ("STRING", {"multiline": True, "default": "Ugly, blurred, distorted"}), "resolution_enum": (ALL_RESOLUTIONS, {"default": "auto"}), "aspect_ratio_enum": (ALL_ASPECT_RATIOS, {"default": "auto"}), "duration_seconds": ("FLOAT", {"default": 5.0, "min": 1.0, "max": 30.0, "step": 0.5}), "guidance_scale": ("FLOAT", {"default": 7.5, "min": 0.0, "max": 20.0, "step": 0.1}), "steps": ("INT", {"default": 25, "min": 1, "max": 100, "step": 1}), "num_frames": ("INT", {"default": 0, "min": 0, "max": 1000}), "style": (["auto", "cinematic", "anime", "photorealistic", "fantasy", "cartoon"], {"default": "auto"}), "prompt_optimizer": ("BOOLEAN", {"default": False}), "cleanup_temp_video": ("BOOLEAN", {"default": True}), }
+            "optional": { "image": ("IMAGE",), "negative_prompt": ("STRING", {"multiline": True, "default": "Ugly, blurred, distorted"}), "resolution_enum": (ALL_RESOLUTIONS, {"default": "auto"}), "aspect_ratio_enum": (ALL_ASPECT_RATIOS, {"default": "auto"}), "duration_seconds": ("FLOAT", {"default": 5.0, "min": 1.0, "max": 30.0, "step": 0.5}), "guidance_scale": ("FLOAT", {"default": 7.5, "min": 0.0, "max": 20.0, "step": 0.1}), "steps": ("INT", {"default": 25, "min": 1, "max": 100, "step": 1}), "num_frames": ("INT", {"default": 0, "min": 0, "max": 1000}), "style": (["auto", "cinematic", "anime", "photorealistic", "fantasy", "cartoon"], {"default": "auto"}), "prompt_optimizer": ("BOOLEAN", {"default": False}), "cleanup_temp_video": ("BOOLEAN", {"default": True}), "override_image_param": ("STRING", {"multiline": False, "default": ""}), }
         }
     RETURN_TYPES = ("IMAGE",)
     RETURN_NAMES = ("image_batch",)
@@ -49,7 +49,7 @@ class FalAPIVideoGeneratorI2V:
             return img_data_uri
         except Exception as e: print(f"ERROR: FalAPIVideoGeneratorI2V: Image processing failed: {e}"); traceback.print_exc(); return None
 
-    def generate_video(self, model_name, api_key, seed, prompt, image=None, negative_prompt=None, resolution_enum="auto", aspect_ratio_enum="auto", duration_seconds=5.0, guidance_scale=7.5, steps=25, num_frames=0, style="auto", prompt_optimizer=False, cleanup_temp_video=True):
+    def generate_video(self, model_name, api_key, seed, prompt, image=None, negative_prompt=None, resolution_enum="auto", aspect_ratio_enum="auto", duration_seconds=5.0, guidance_scale=7.5, steps=25, num_frames=0, style="auto", prompt_optimizer=False, cleanup_temp_video=True, override_image_param=""):
         def log_prefix(): return "FalAPIVideoGeneratorI2V:"
         print(f"{log_prefix()} Starting generation...")
 
@@ -64,13 +64,16 @@ class FalAPIVideoGeneratorI2V:
 
         # --- 2. Payload ---
         payload = {}
-        if 'image_url' in expected_params:
+        param_overrides = config.get("param_name_overrides", {})
+        image_param_name = override_image_param.strip() if override_image_param.strip() else param_overrides.get("image_url", "image_url")
+
+        if image_param_name in expected_params:
             if image is not None:
                 img_data_uri = self._prepare_image(image)
-                if img_data_uri: payload['image_url'] = img_data_uri
+                if img_data_uri: payload[image_param_name] = img_data_uri
                 else: print(f"ERROR: {log_prefix()} Failed preparing image."); return (None,)
-            else: print(f"WARN: {log_prefix()} Model expects 'image_url', none provided.")
-        elif image is not None: print(f"WARN: {log_prefix()} Image provided but model doesn't expect 'image_url'.")
+            else: print(f"WARN: {log_prefix()} Model expects '{image_param_name}', none provided.")
+        elif image is not None: print(f"WARN: {log_prefix()} Image provided but model doesn't expect an image parameter.")
 
         if 'prompt' in expected_params: payload['prompt'] = prompt.strip() if prompt else ""
         if 'negative_prompt' in expected_params and negative_prompt: payload['negative_prompt'] = negative_prompt.strip()

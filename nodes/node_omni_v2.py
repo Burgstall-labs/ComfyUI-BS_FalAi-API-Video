@@ -48,6 +48,10 @@ class FalOmniProV2Node:
                 "save_original_video": ("BOOLEAN", {"default": False}),
                 "save_directory": ("STRING", {"default": "fal_omni_v2_output"}),
                 "log_payload": ("BOOLEAN", {"default": False}),
+                "override_start_image_param": ("STRING", {"multiline": False, "default": ""}),
+                "override_end_image_param": ("STRING", {"multiline": False, "default": ""}),
+                "override_video_param": ("STRING", {"multiline": False, "default": ""}),
+                "override_audio_param": ("STRING", {"multiline": False, "default": ""}),
             }
         }
         for i in range(1, 11):
@@ -83,7 +87,7 @@ class FalOmniProV2Node:
             
         return value
 
-    def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, **kwargs):
+    def run(self, model_id, api_key, start_image=None, end_image=None, reference_images=None, input_video=None, input_audio=None, cleanup_temp_files=True, output_video_fps=30, override_start_image_param="", override_end_image_param="", override_video_param="", override_audio_param="", **kwargs):
         save_original_video = kwargs.get("save_original_video", False)
         save_directory = kwargs.get("save_directory", "fal_omni_v2_output")
         log_payload = kwargs.get("log_payload", False)
@@ -120,12 +124,14 @@ class FalOmniProV2Node:
             if start_image is not None:
                 img_bytes, ct = _prepare_image_bytes(start_image)
                 url = _upload_media_to_fal(img_bytes, "start_img.png", ct) if img_bytes else None
-                if url: uploaded_media_urls[self.AUTO_KEY_START_IMAGE] = url
+                start_image_param_name = override_start_image_param.strip() if override_start_image_param.strip() else self.AUTO_KEY_START_IMAGE
+                if url: uploaded_media_urls[start_image_param_name] = url
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Start image prep/upload failed.")
             if end_image is not None and not upload_error:
                 img_bytes, ct = _prepare_image_bytes(end_image)
                 url = _upload_media_to_fal(img_bytes, "end_img.png", ct) if img_bytes else None
-                if url: uploaded_media_urls[self.AUTO_KEY_END_IMAGE] = url
+                end_image_param_name = override_end_image_param.strip() if override_end_image_param.strip() else self.AUTO_KEY_END_IMAGE
+                if url: uploaded_media_urls[end_image_param_name] = url
                 else: upload_error = True; print(f"ERROR: {log_prefix()} End image prep/upload failed.")
             if input_video is not None and not upload_error:
                 temp_vid_path = _save_tensor_to_temp_video(input_video, fps=output_video_fps)
@@ -133,8 +139,9 @@ class FalOmniProV2Node:
                 if temp_vid_path:
                     temp_files_to_clean.append(temp_vid_path)
                     with open(temp_vid_path, 'rb') as vf: video_bytes = vf.read()
+                    video_param_name = override_video_param.strip() if override_video_param.strip() else self.AUTO_KEY_INPUT_VIDEO
                     if video_bytes: url = _upload_media_to_fal(video_bytes, os.path.basename(temp_vid_path), "video/mp4")
-                    if url: uploaded_media_urls[self.AUTO_KEY_INPUT_VIDEO] = url
+                    if url: uploaded_media_urls[video_param_name] = url
                     else: upload_error = True; print(f"ERROR: {log_prefix()} Input video upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving input video failed.")
             if input_audio is not None and not upload_error:
@@ -143,8 +150,9 @@ class FalOmniProV2Node:
                 if temp_aud_path:
                     temp_files_to_clean.append(temp_aud_path)
                     with open(temp_aud_path, 'rb') as af: audio_bytes = af.read()
+                    audio_param_name = override_audio_param.strip() if override_audio_param.strip() else self.AUTO_KEY_INPUT_AUDIO
                     if audio_bytes: url = _upload_media_to_fal(audio_bytes, os.path.basename(temp_aud_path), "audio/wav")
-                    if url: uploaded_media_urls[self.AUTO_KEY_INPUT_AUDIO] = url
+                    if url: uploaded_media_urls[audio_param_name] = url
                     else: upload_error = True; print(f"ERROR: {log_prefix()} Input audio upload failed.")
                 else: upload_error = True; print(f"ERROR: {log_prefix()} Saving input audio failed.")
             
