@@ -179,18 +179,15 @@ class FalOmniProV2Node:
                         break
                 
                 if not upload_error and reference_image_urls:
-                    if len(reference_image_urls) == 1:
-                        key = "image_url"
-                        value = reference_image_urls[0]
-                        if key in uploaded_media_urls:
-                            print(f"WARN: {log_prefix()} A single reference image is overwriting the '{key}' field.")
-                        uploaded_media_urls[key] = value
-                        print(f"{log_prefix()} Added 1 reference image to payload with key: '{key}'")
-                    elif len(reference_image_urls) > 1:
-                        key = "image_urls"
-                        value = reference_image_urls
-                        uploaded_media_urls[key] = value
-                        print(f"{log_prefix()} Added {len(value)} reference images to payload with key: '{key}'")
+                    # ALWAYS use 'image_urls' and a list for reference images.
+                    key = "image_urls" 
+                    value = reference_image_urls # This is already a list
+                    
+                    if key in user_params:
+                        print(f"WARN: {log_prefix()} Overwriting dynamic arg '{key}' with reference image(s).")
+                    
+                    uploaded_media_urls[key] = value
+                    print(f"{log_prefix()} Added {len(value)} reference image(s) to payload with key: '{key}'")
 
                 elif not upload_error and not reference_image_urls and num_images_to_process > 0:
                     print(f"WARN: {log_prefix()} Reference images were provided but no URLs were generated.")
